@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
+
 import uuid
 import time
 
@@ -74,11 +75,13 @@ class ResetRequest(BaseModel):
     seed:    int = 42
 
 class StepRequest(BaseModel):
-    session_id:      str
-    assign_priority: str
-    assign_category: str
-    response_text:   str   = ""
-    escalate:        bool  = False
+    session_id:          str
+    assign_priority:     str           = "medium"
+    assign_category:     str           = "general"
+    response_text:       str           = ""
+    escalate:            bool          = False
+    action_type:         Optional[str] = None      # "classify" or "ask"
+    clarifying_question: Optional[str] = None      # used with action_type="ask"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -244,30 +247,44 @@ def step(req: StepRequest):
     """
     env = _get_session(req.session_id)
 
-    # Validate enum values with helpful error messages
-    try:
-        priority = Priority(req.assign_priority)
-    except ValueError:
-        raise HTTPException(
-            400,
-            f"Invalid assign_priority '{req.assign_priority}'. "
-            f"Valid values: {[p.value for p in Priority]}"
-        )
-    try:
-        category = Category(req.assign_category)
-    except ValueError:
-        raise HTTPException(
-            400,
-            f"Invalid assign_category '{req.assign_category}'. "
-            f"Valid values: {[c.value for c in Category]}"
-        )
+    # Determine action type
+    from environment import ActionType
+    action_type = ActionType.CLASSIFY
+    if req.action_type and req.action_type.lower() == "ask":
+        action_type = ActionType.ASK
 
-    action = Action(
-        assign_priority=priority,
-        assign_category=category,
-        response_text=req.response_text,
-        escalate=req.escalate,
-    )
+    # For ASK actions, skip priority/category validation
+    if action_type == ActionType.ASK:
+        action = Action(
+            action_type=ActionType.ASK,
+            clarifying_question=req.clarifying_question or "Could you clarify the issue?",
+        )
+    else:
+        # Validate enum values with helpful error messages
+        try:
+            priority = Priority(req.assign_priority)
+        except ValueError:
+            raise HTTPException(
+                400,
+                f"Invalid assign_priority '{req.assign_priority}'. "
+                f"Valid values: {[p.value for p in Priority]}"
+            )
+        try:
+            category = Category(req.assign_category)
+        except ValueError:
+            raise HTTPException(
+                400,
+                f"Invalid assign_category '{req.assign_category}'. "
+                f"Valid values: {[c.value for c in Category]}"
+            )
+
+        action = Action(
+            action_type=ActionType.CLASSIFY,
+            assign_priority=priority,
+            assign_category=category,
+            response_text=req.response_text,
+            escalate=req.escalate,
+        )
 
     try:
         obs, reward, done, info = env.step(action)

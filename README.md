@@ -121,9 +121,9 @@ python inference.py
 
 ```bash
 # With LLM agent
-export API_BASE_URL="https://api.openai.com/v1"
-export MODEL_NAME="gpt-4o-mini"
-export HF_TOKEN="sk-..."
+export API_BASE_URL="https://api.groq.com/openai/v1"
+export MODEL_NAME="llama-3.3-70b-versatile"
+export HF_TOKEN="gsk_..."
 python inference.py
 ```
 
@@ -696,16 +696,20 @@ docker run -p 7860:7860 customer-support-env:latest
 
 # With LLM credentials
 docker run -p 7860:7860 \
-  -e MODEL_NAME=gpt-4o-mini \
-  -e HF_TOKEN=sk-... \
+  -e MODEL_NAME=llama-3.3-70b-versatile \
+  -e HF_TOKEN=gsk_... \
   customer-support-env:latest
 ```
 
 ### Local Python
 
+We natively utilize a `.env` file for API keys if present.
+
 ```bash
+pip install uv
+uv lock
 pip install -r requirements.txt
-python main.py          # starts server at localhost:7860
+python server/app.py    # starts server at localhost:7860
 python inference.py     # runs baseline evaluation
 ```
 
@@ -713,8 +717,8 @@ python inference.py     # runs baseline evaluation
 
 | Variable | Description | Default |
 |---|---|---|
-| `API_BASE_URL` | OpenAI-compatible API base URL | `https://api.openai.com/v1` |
-| `MODEL_NAME` | Model identifier | `gpt-4o-mini` |
+| `API_BASE_URL` | OpenAI-compatible API base URL | `https://api.groq.com/openai/v1` |
+| `MODEL_NAME` | Model identifier | `llama-3.3-70b-versatile` |
 | `HF_TOKEN` | API key | - |
 
 ---
@@ -746,10 +750,14 @@ lsof -i :7860                # ensure port is free
 ```
 .
 ├── environment.py   # Core OpenEnv environment (MDP, graders, world state)
-├── main.py          # FastAPI server (OpenEnv API endpoints)
+├── main.py          # Original FastAPI app logic
+├── server/app.py    # OpenEnv validate entrypoint (forwards to main.py)
+├── pyproject.toml   # Project configuration and CLI entry points
+├── uv.lock          # Exact dependency locks for Hackathon validation
 ├── inference.py     # Baseline agents + evaluation runner
 ├── openenv.yaml     # OpenEnv spec declaration
 ├── Dockerfile       # HuggingFace Spaces deployment
 ├── requirements.txt # Python dependencies
+├── .env             # (Git-ignored) Local secrets like HF_TOKEN
 └── README.md        # This file
 ```

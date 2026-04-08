@@ -95,12 +95,12 @@ baseline_scores:
     task_1_priority:       0.70
     task_2_classification: 0.60
     task_3_full_triage:    0.55
-  gpt_4o_mini:
-    task_1_priority:       0.88
-    task_2_classification: 0.79
-    task_3_full_triage:    0.73
+  llama_3_3_70b:
+    task_1_priority:       0.97
+    task_2_classification: 0.82
+    task_3_full_triage:    0.65
 
 huggingface:
-  space: "your-username/customer-support-env"
+  space: "Subhakshay/support-triage-env"
   sdk:   docker
   port:  7860
