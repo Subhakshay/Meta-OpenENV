@@ -713,6 +713,20 @@ python server/app.py    # starts server at localhost:7860
 python inference.py     # runs baseline evaluation
 ```
 
+### Submitting & Pre-Validation
+
+Before submitting to the Hackathon, you must run the pre-validation script locally to verify your setup automatically passes the `openenv` spec checks:
+
+```bash
+# Standard Bash
+bash pre_validation.sh https://subhakshay-support-triage-env.hf.space
+```
+
+If you are on Windows using PowerShell and the standard command fails, use this explicit command to route it through Git Bash:
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" -c "export PATH=`"$PWD/venv/Scripts:`$PATH`" && ./pre_validation.sh https://subhakshay-support-triage-env.hf.space"
+```
+
 ### Environment Variables
 
 | Variable | Description | Default |
