@@ -20,20 +20,29 @@ import re
 import time
 from typing import Any, Callable, Dict, List, Optional
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from environment import (
     CustomerSupportEnv, Action, Observation,
     Priority, Category, ActionType, run_episode,
 )
 
 # ── OpenAI-compatible client (assignment requirement) ─────────────────────────
-API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
-MODEL        = os.environ.get("MODEL_NAME",   "gpt-4o-mini")   # assignment spec: MODEL_NAME
-API_KEY      = os.environ.get("HF_TOKEN",     os.environ.get("OPENAI_API_KEY", ""))  # assignment spec: HF_TOKEN
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
+HF_TOKEN = os.getenv("HF_TOKEN")
+
+# Optional - if you use from_docker_image():
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 
 try:
     from openai import OpenAI
-    _client = OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
-    HAS_LLM = bool(API_KEY)
+    _client = OpenAI(api_key=HF_TOKEN, base_url=API_BASE_URL)
+    HAS_LLM = bool(HF_TOKEN)
 except Exception:
     HAS_LLM = False
     _client = None  # type: ignore
@@ -251,7 +260,7 @@ def llm_agent(obs: Observation) -> Action:
 
     try:
         resp = _client.chat.completions.create(
-            model=MODEL,
+            model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user",   "content": user_msg},
@@ -371,6 +380,6 @@ def evaluate_agent(
 
 if __name__ == "__main__":
     if HAS_LLM:
-        evaluate_agent(llm_agent, MODEL, seeds=(42, 123, 7))
+        evaluate_agent(llm_agent, MODEL_NAME, seeds=(42, 123, 7))
     else:
         evaluate_agent(rule_based_agent, "Rule-Based", seeds=(42, 123, 7))

@@ -1,2 +1,5 @@
 venv
 sample_inference.py
+__pycache__/
+test_checklist.py
+.env
