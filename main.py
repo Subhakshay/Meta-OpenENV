@@ -200,13 +200,15 @@ def observation_space():
 # ---------------------------------------------------------------------------
 
 @app.post("/reset", tags=["Environment"])
-def reset(req: ResetRequest):
+def reset(req: Optional[ResetRequest] = None):
     """
     Start a new episode.
 
     Returns a `session_id` — pass this to every subsequent /step call.
     Also returns the first observation and task metadata.
     """
+    if req is None:
+        req = ResetRequest()
     if req.task_id not in VALID_TASKS:
         raise HTTPException(400, f"task_id must be one of {VALID_TASKS}")
 
