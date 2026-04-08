@@ -1,5 +1,6 @@
 ---
 title: Support Triage Env
+emoji: 🛠️
 colorFrom: blue
 colorTo: green
 sdk: docker
