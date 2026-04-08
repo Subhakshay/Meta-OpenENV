@@ -1,6 +1,5 @@
 ---
 title: Support Triage Env
-emoji: 🛠️
 colorFrom: blue
 colorTo: green
 sdk: docker
@@ -715,7 +714,7 @@ python inference.py     # runs baseline evaluation
 
 ### Submitting & Pre-Validation
 
-Before submitting to the Hackathon, you must run the pre-validation script locally to verify your setup automatically passes the `openenv` spec checks:
+To run the pre-validation script locally to verify your setup automatically passes the `openenv` spec checks:
 
 ```bash
 # Standard Bash
