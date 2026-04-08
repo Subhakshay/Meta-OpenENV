@@ -18,7 +18,7 @@ import os
 import json
 import re
 import time
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from environment import (
     CustomerSupportEnv, Action, Observation,
@@ -288,43 +288,81 @@ def llm_agent(obs: Observation) -> Action:
 #  Evaluation runner
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
+
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    error_val = error if error else "null"
+    done_val = str(done).lower()
+    print(
+        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
+        flush=True,
+    )
+
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+
+def _format_action(action: Action) -> str:
+    d = {"type": action.action_type.value}
+    if action.action_type == ActionType.ASK:
+        d["question"] = action.clarifying_question
+    else:
+        d["priority"] = action.assign_priority.value
+        d["category"] = action.assign_category.value
+        d["escalate"] = action.escalate
+    return json.dumps(d)
+
+def run_episode_with_logging(env: CustomerSupportEnv, agent_fn: Callable, task_id: str, model_name: str) -> float:
+    log_start(task=task_id, env="customer-support-triage", model=model_name)
+    
+    obs = env.reset()
+    rewards = []
+    steps = 0
+    error = None
+    
+    while True:
+        try:
+            action = agent_fn(obs)
+            action_str = _format_action(action)
+        except Exception as e:
+            action = Action()
+            action_str = "error"
+            error = str(e)
+            
+        try:
+            obs, reward, done, info = env.step(action)
+            r_val = reward.value
+            error = None
+        except Exception as e:
+            r_val = 0.0
+            done = True
+            error = str(e)
+            
+        rewards.append(r_val)
+        steps += 1
+        
+        log_step(step=steps, action=action_str, reward=r_val, done=done, error=error)
+        
+        if done:
+            break
+            
+    score = sum(rewards) / max(steps, 1)
+    score = min(max(score, 0.0), 1.0)
+    success = score >= 0.5
+    
+    log_end(success=success, steps=steps, score=score, rewards=rewards)
+    return score
+
 def evaluate_agent(
     agent_fn: Callable[[Observation], Action],
     agent_name: str,
     seeds: tuple = (42, 123, 7),
-) -> Dict[str, Any]:
-    results: Dict[str, Any] = {}
-
-    print(f"\n{'='*68}")
-    print(f"  Agent: {agent_name}")
-    print(f"{'='*68}")
-    print(f"  {'Task':<32} {'Mean':>8}  {'Std':>7}  {'Min':>7}  {'Max':>7}")
-    print(f"  {'-'*64}")
-
+) -> None:
     for task_id in CustomerSupportEnv.TASK_IDS:
-        scores: List[float] = []
         for seed in seeds:
-            env    = CustomerSupportEnv(task_id=task_id, seed=seed)
-            result = run_episode(env, agent_fn)
-            scores.append(result["mean_reward"])
-
-        mean = sum(scores) / len(scores)
-        std  = (sum((s - mean) ** 2 for s in scores) / len(scores)) ** 0.5
-        lo, hi = min(scores), max(scores)
-
-        results[task_id] = {
-            "mean": round(mean, 4), "std": round(std, 4),
-            "min":  round(lo,   4), "max": round(hi,  4),
-            "per_seed": {str(s): round(sc, 4) for s, sc in zip(seeds, scores)},
-        }
-        label = task_id.replace("task_", "Task ").replace("_", " ").title()
-        print(f"  {label:<32} {mean:>8.4f}  {std:>7.4f}  {lo:>7.4f}  {hi:>7.4f}")
-
-    overall = sum(r["mean"] for r in results.values()) / len(results)
-    print(f"  {'-'*64}")
-    print(f"  {'Overall Mean':<32} {overall:>8.4f}")
-    print(f"{'='*68}\n")
-    return {"agent": agent_name, "tasks": results, "overall_mean": round(overall, 4)}
+            env = CustomerSupportEnv(task_id=task_id, seed=seed)
+            run_episode_with_logging(env, agent_fn, task_id, agent_name)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -332,21 +370,7 @@ def evaluate_agent(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    print("\n🚀  CustomerSupportEnv v2 — Baseline Evaluation")
-    print(f"    API_BASE_URL : {API_BASE_URL}")
-    print(f"    MODEL_NAME   : {MODEL}")
-    print(f"    HF_TOKEN     : {'set ✓' if API_KEY else 'not set (rule-based only)'}")
-
-    evaluate_agent(rule_based_agent, "Rule-Based Agent (no LLM)", seeds=(42, 123, 7))
-
     if HAS_LLM:
-        time.sleep(0.5)
-        evaluate_agent(llm_agent, f"LLM Agent ({MODEL})", seeds=(42, 123, 7))
+        evaluate_agent(llm_agent, MODEL, seeds=(42, 123, 7))
     else:
-        print("⚠️  Set HF_TOKEN (and optionally API_BASE_URL, MODEL_NAME) to run LLM agent.")
-
-    print("✅  Done!\n")
-    print("Expected baseline score ranges (v2 environment):")
-    print("  Task 1 — Priority only:      rule-based ~0.65–0.75 | LLM ~0.85–0.92")
-    print("  Task 2 — + Category+Response: rule-based ~0.50–0.62 | LLM ~0.70–0.80")
-    print("  Task 3 — Multi-turn+World:   rule-based ~0.40–0.55 | LLM ~0.60–0.72")
+        evaluate_agent(rule_based_agent, "Rule-Based", seeds=(42, 123, 7))
