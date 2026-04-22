@@ -7,6 +7,9 @@ from contextlib import asynccontextmanager
 import uuid
 import time
 import asyncio
+import logging
+
+logging.basicConfig(level=logging.INFO, format='%(levelname)s:     %(name)s - %(message)s')
 
 try:
     from environment import CustomerSupportEnv, Action, Priority, Category, TASK_CONFIG

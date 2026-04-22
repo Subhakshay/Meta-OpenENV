@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application files
 COPY environment.py .
 COPY main.py .
+COPY db.py .
 COPY inference.py .
 COPY openenv.yaml .
 COPY pyproject.toml .
