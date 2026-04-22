@@ -18,6 +18,11 @@ COPY environment.py .
 COPY main.py .
 COPY inference.py .
 COPY openenv.yaml .
+COPY pyproject.toml .
+COPY uv.lock .
+
+RUN mkdir -p server
+COPY server/app.py server/
 
 # Set ownership
 RUN chown -R appuser:appuser /app
