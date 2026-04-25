@@ -1,106 +1,80 @@
-name: customer-support-triage
-version: "1.0.0"
+name: gauntlet-shifting-sands
+version: "2.0.0"
 description: >
-  A real-world customer support triage environment where an AI agent learns
-  to classify ticket priority, categorize issue type, and generate helpful
-  responses. Simulates a genuine enterprise support workflow with three tasks
-  of increasing difficulty.
+  Adversarial self-play customer support environment with policy drift.
+  An Attacker agent generates deceptive tickets; a Defender agent must
+  classify them correctly under evolving company policies.
+  Combines The Gauntlet (adversarial self-play) with Shifting Sands
+  (policy drift mid-session).
 author: OpenEnv Community
 license: MIT
+themes:
+  - self-improvement
+  - world-modeling
 tags:
   - openenv
-  - nlp
-  - classification
-  - generation
+  - adversarial
+  - policy-drift
+  - self-play
   - customer-support
-  - real-world
-
-observation_space:
-  type: structured
-  fields:
-    ticket:
-      type: object
-      fields:
-        id:            string
-        subject:       string
-        body:          string
-        customer_tier: "free | pro | enterprise"
-        created_at:    datetime
-        sentiment:     "angry | neutral | positive"
-    queue_size:            integer
-    time_elapsed_seconds:  float
-    agent_actions_taken:   integer
-    task_id:               string
-    hint:                  "string | null"
-
-action_space:
-  type: structured
-  fields:
-    assign_priority: "low | medium | high | critical"
-    assign_category: "billing | technical | account | shipping | general | refund"
-    response_text:   string
-    escalate:        boolean
-
-reward:
-  range: [0.0, 1.0]
-  type: dense
-  description: >
-    Weighted combination of priority accuracy (partial credit for near-miss),
-    category accuracy (partial credit for related categories), and response
-    quality (multi-factor: greeting, subject reference, domain vocabulary,
-    action commitment, escalation, professional closing).
+  - rl-environment
 
 tasks:
-  - id: task_1_priority
+  - id: 1
+    name: priority-only
+    description: Classify ticket priority (Low/Medium/High/Critical). Easy mode — no deception, no drift.
+    max_steps: 12
     difficulty: easy
-    description: "Assign the correct priority level to each support ticket."
-    max_steps: 10
-    score_range: [0.0, 1.0]
-    grader: grade_priority
-    weights:
-      priority: 1.0
-
-  - id: task_2_classification
+  - id: 2
+    name: full-classification
+    description: Classify priority, category, draft response, handle escalation. Drift enabled.
+    max_steps: 12
     difficulty: medium
-    description: "Assign correct priority AND category to each support ticket."
-    max_steps: 10
-    score_range: [0.0, 1.0]
-    grader: "grade_priority + grade_category"
-    weights:
-      priority: 0.6
-      category: 0.4
-
-  - id: task_3_full_triage
+  - id: 3
+    name: multi-turn
+    description: Full classification with clarification requests and policy drift. Multi-turn dialogue.
+    max_steps: 12
     difficulty: hard
-    description: "Full triage: correct priority, category, quality response, and escalation."
-    max_steps: 10
-    score_range: [0.0, 1.0]
-    grader: "grade_priority + grade_category + grade_response"
-    weights:
-      priority: 0.35
-      category: 0.25
-      response: 0.40
+
+observation_space:
+  type: dict
+  fields:
+    - ticket_id
+    - subject
+    - body
+    - customer_tier
+    - active_policy_version
+    - world_state_summary
+    - system_notice        # only present when drift fires
+    - conversation_history # only present in multi-turn mode
+    - sentiment_score      # only present after v3 schema drift
+    - account_age_days     # only present after v3 schema drift
+
+action_space:
+  type: dict
+  fields:
+    - assign_priority      # Low | Medium | High | Critical
+    - assign_category      # Billing | Technical | Shipping | Security
+    - draft_response       # natural language response to customer
+    - escalate             # boolean
+    - ask_clarification    # boolean (Task 3 only)
+    - clarification_text   # string (Task 3 only)
+    - approve_refund       # boolean (Billing tickets only)
+
+reward_range: [-10.0, 10.0]
+episode_length: 12
+reset_endpoint: /reset
+step_endpoint: /step
 
 api:
   reset: "POST /reset"
-  step:  "POST /step"
-  state: "GET /state/{session_id}"
-  tasks: "GET /tasks"
-  action_space:      "GET /action_space"
-  observation_space: "GET /observation_space"
-  health:            "GET /health"
-
-baseline_scores:
-  rule_based:
-    task_1_priority:       0.70
-    task_2_classification: 0.60
-    task_3_full_triage:    0.55
-  llama_3_3_70b:
-    task_1_priority:       0.97
-    task_2_classification: 0.82
-    task_3_full_triage:    0.65
+  step: "POST /step"
+  episodes: "GET /episodes"
+  episode_detail: "GET /episodes/{episode_id}"
+  world_state: "GET /world_state/{session_id}"
+  health: "GET /health"
 
 huggingface:
   space: "Subhakshay/support-triage-env"
-  sdk:   docker
-  port:  7860
+  sdk: docker
+  port: 7860
