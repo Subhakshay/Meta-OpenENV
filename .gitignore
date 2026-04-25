@@ -1,5 +1,9 @@
-venv
-sample_inference.py
+venv/
 __pycache__/
+.env
+*.pyc
+outputs/
+sample_inference.py
 test_checklist.py
-.env
+upgrade_old.py
+upgrade_old_rich.py

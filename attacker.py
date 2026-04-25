@@ -93,7 +93,7 @@ def _gen_priority_confusion(policy: PolicyVersion, difficulty: int, rng: random.
         body += " UPDATE: ok so now we're losing data too. still no rush though!"
 
     return {"body": body, "true_priority": "Critical", "true_category": "Technical",
-            "base_requires_escalation": True, "is_ambiguous": False, "refund_boundary": False}
+            "base_requires_escalation": True, "is_ambiguous": False, "refund_eligible_boundary": False}
 
 
 def _gen_fake_urgency(policy: PolicyVersion, difficulty: int, rng: random.Random) -> Dict[str, Any]:
@@ -118,7 +118,7 @@ def _gen_fake_urgency(policy: PolicyVersion, difficulty: int, rng: random.Random
         body += " BOARD OF DIRECTORS EMERGENCY SESSION CALLED. LAWYERS INVOLVED. RESPOND IN 5 MINUTES."
 
     return {"body": body, "true_priority": "Low", "true_category": "Billing" if "billing" in body.lower() or "pricing" in body.lower() or "plan" in body.lower() else "Technical",
-            "base_requires_escalation": False, "is_ambiguous": False, "refund_boundary": False}
+            "base_requires_escalation": False, "is_ambiguous": False, "refund_eligible_boundary": False}
 
 
 def _gen_category_confusion(policy: PolicyVersion, difficulty: int, rng: random.Random) -> Dict[str, Any]:
@@ -156,7 +156,7 @@ def _gen_category_confusion(policy: PolicyVersion, difficulty: int, rng: random.
         true_pri = "Critical"
 
     return {"body": body, "true_priority": true_pri, "true_category": true_cat,
-            "base_requires_escalation": true_pri == "Critical", "is_ambiguous": True, "refund_boundary": False}
+            "base_requires_escalation": true_pri == "Critical", "is_ambiguous": True, "refund_eligible_boundary": False}
 
 
 def _gen_boundary_exploitation(policy: PolicyVersion, difficulty: int, rng: random.Random) -> Dict[str, Any]:
@@ -185,7 +185,7 @@ def _gen_boundary_exploitation(policy: PolicyVersion, difficulty: int, rng: rand
 
     return {"body": body, "true_priority": "Medium", "true_category": "Billing",
             "base_requires_escalation": False, "is_ambiguous": difficulty >= 3,
-            "refund_boundary": True, "days_since_purchase": days}
+            "refund_eligible_boundary": True, "days_since_purchase": days}
 
 
 def _gen_emotional_manipulation(policy: PolicyVersion, difficulty: int, rng: random.Random) -> Dict[str, Any]:
@@ -209,7 +209,7 @@ def _gen_emotional_manipulation(policy: PolicyVersion, difficulty: int, rng: ran
 
     # True priority is always Low or Medium — the emotional language shouldn't inflate it
     return {"body": body, "true_priority": "Low" if difficulty >= 3 else "Medium", "true_category": "Technical",
-            "base_requires_escalation": False, "is_ambiguous": False, "refund_boundary": False}
+            "base_requires_escalation": False, "is_ambiguous": False, "refund_eligible_boundary": False}
 
 
 def _gen_scope_creep(policy: PolicyVersion, difficulty: int, rng: random.Random) -> Dict[str, Any]:
@@ -235,7 +235,7 @@ def _gen_scope_creep(policy: PolicyVersion, difficulty: int, rng: random.Random)
     # True priority escalates with scope
     pri = "Low" if difficulty <= 2 else ("High" if difficulty <= 4 else "Critical")
     return {"body": body, "true_priority": pri, "true_category": "Technical",
-            "base_requires_escalation": pri == "Critical", "is_ambiguous": True, "refund_boundary": False}
+            "base_requires_escalation": pri == "Critical", "is_ambiguous": True, "refund_eligible_boundary": False}
 
 
 def _gen_pii_injection(policy: PolicyVersion, difficulty: int, rng: random.Random) -> Dict[str, Any]:
@@ -258,7 +258,7 @@ def _gen_pii_injection(policy: PolicyVersion, difficulty: int, rng: random.Rando
     true_cat = "Security" if "Security" in policy.valid_categories and difficulty >= 3 else "Billing"
     return {"body": body, "true_priority": "High" if difficulty <= 3 else "Medium",
             "true_category": true_cat, "base_requires_escalation": False,
-            "is_ambiguous": False, "refund_boundary": False, "schema_violation": True}
+            "is_ambiguous": False, "refund_eligible_boundary": False, "schema_violation": True}
 
 
 def _gen_shift_exploiter(policy: PolicyVersion, difficulty: int, rng: random.Random) -> Dict[str, Any]:
@@ -293,7 +293,7 @@ def _gen_shift_exploiter(policy: PolicyVersion, difficulty: int, rng: random.Ran
     days = cur_refund + rng.randint(1, 10)  # Always outside current window
     return {"body": body, "true_priority": "Medium" if difficulty <= 3 else "High",
             "true_category": "Billing", "base_requires_escalation": False,
-            "is_ambiguous": False, "refund_boundary": True, "days_since_purchase": days}
+            "is_ambiguous": False, "refund_eligible_boundary": True, "days_since_purchase": days}
 
 
 # ── Generator dispatch table ────────────────────────────────────────────────
@@ -437,6 +437,7 @@ class AttackerAgent:
             "true_category": raw["true_category"],
             "base_requires_escalation": raw["base_requires_escalation"],
             "is_ambiguous": raw.get("is_ambiguous", False),
+            "refund_eligible_boundary": raw.get("refund_eligible_boundary", False),
             "deception_strategy": strategy,
             "template_index": STRATEGIES.index(strategy),
             "difficulty_used": difficulty,

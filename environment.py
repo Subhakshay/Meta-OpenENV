@@ -114,8 +114,7 @@ def generate_ticket_clean(blueprint: Dict[str, Any], policy: PolicyVersion, rng:
         "tier": rng.choice(VARS["tier"]),"true_priority": blueprint["true_priority"],
         "true_category": blueprint["true_category"],"base_requires_escalation": blueprint["base_requires_escalation"],
         "refund_eligible_boundary": blueprint.get("refund_eligible_boundary",False),
-        "is_ambiguous": blueprint.get("is_ambiguous",False),"deception_strategy": "clean",
-        "schema_violation": False,"template_index": -1,
+        "is_ambiguous": blueprint.get("is_ambiguous",False),"deception_strategy": "clean","schema_violation": False,"template_index": -1,
     }
     if blueprint.get("refund_eligible_boundary"):
         ticket["days_since_purchase"] = int(rng.choice(VARS["days_since_purchase"]))
@@ -139,7 +138,7 @@ class _BaseEnv:
         self.policy_registry = PolicyRegistry()
         self.drift_scheduler = DriftScheduler()
         self.world_state = WorldState()
-        self._rng = random.Random(42)
+        self._rng = random.Random()
         self._session_id = ""
         self._task_id = 1
         self._ticket_queue: List[Dict[str, Any]] = []
@@ -207,7 +206,7 @@ class _BaseEnv:
 class GauntletEnv(_BaseEnv):
     """Escalating difficulty. Catastrophic failure ends episode immediately."""
 
-    def reset(self, task_id=2, difficulty_init=1, seed=None, **kw):
+    def reset(self, task_id=2, difficulty_init=None, seed=None, **kw):
         self._session_id = str(uuid.uuid4())
         self._task_id = task_id
         self._current_step = 0
@@ -215,17 +214,38 @@ class GauntletEnv(_BaseEnv):
         self._was_post_drift = False
         self._conversation_history = []
         self._defender_rewards = []
-        if seed: self._rng = random.Random(seed)
-        self.world_state.reset_episode(preserve_curriculum=True)
-        self.world_state.difficulty_level = max(1, min(5, difficulty_init))
+        if seed is not None: self._rng = random.Random(seed)
+        # FIX: reset drift_scheduler each episode so events don't re-fire
+        self.drift_scheduler = DriftScheduler()
+        
+        preserve = kw.get("preserve_curriculum", True)
+        self.world_state.reset_episode(preserve_curriculum=preserve)
+        if not preserve or difficulty_init is not None:
+            init_val = difficulty_init if difficulty_init is not None else 1
+            self.world_state.difficulty_level = max(1, min(5, init_val))
+
         self.policy_registry.reset()
-        self._ticket_queue = self._generate_ticket_batch(12)
+
+        attacker_enabled = kw.get("attacker_enabled", False)
+        if attacker_enabled:
+            from attacker import AttackerAgent
+            attacker = AttackerAgent(self.policy_registry)
+            self._ticket_queue = attacker.generate_batch(
+                12, self.world_state.difficulty_level, [], self.policy_registry.get_active(), self._rng
+            )
+        else:
+            self._ticket_queue = self._generate_ticket_batch(12)
+            
         return self._build_observation(self._ticket_queue[0], None)
 
     def step(self, action):
         if self._done: raise RuntimeError("Episode closed.")
         self._current_step += 1
-        ticket = self._ticket_queue[self.world_state.tickets_processed]
+
+        # FIX: guard ticket index — never read past end of queue
+        ticket_idx = min(self.world_state.tickets_processed, len(self._ticket_queue) - 1)
+        ticket = self._ticket_queue[ticket_idx]
+
         drift_notice = None
         event = self.drift_scheduler.check_step(self._current_step)
         if event:
@@ -246,6 +266,7 @@ class GauntletEnv(_BaseEnv):
         self.world_state.tickets_processed += 1
         self.world_state.multi_turn_active = False
         self._conversation_history = []
+        self._was_post_drift = False  # consumed — only first step after drift gets the flag
         if self.world_state.catastrophic_failure:
             self._done = True
             return {"reward": dr, "attacker_fitness": af, "reward_breakdown": bd,
@@ -271,7 +292,7 @@ class ShiftingSandsEnv(_BaseEnv):
         super().__init__()
         self._reward_weights = {"priority": 1.0, "category": 1.0, "response": 1.0, "escalation": 1.0}
 
-    def reset(self, task_id=2, difficulty_init=1, seed=None, **kw):
+    def reset(self, task_id=2, difficulty_init=None, seed=None, **kw):
         self._session_id = str(uuid.uuid4())
         self._task_id = task_id
         self._current_step = 0
@@ -280,11 +301,28 @@ class ShiftingSandsEnv(_BaseEnv):
         self._conversation_history = []
         self._defender_rewards = []
         self._reward_weights = {"priority": 1.0, "category": 1.0, "response": 1.0, "escalation": 1.0}
-        if seed: self._rng = random.Random(seed)
-        self.world_state.reset_episode(preserve_curriculum=True)
-        self.world_state.difficulty_level = max(1, min(5, difficulty_init))
+        if seed is not None: self._rng = random.Random(seed)
+        # FIX: reset drift_scheduler each episode so events don't re-fire
+        self.drift_scheduler = DriftScheduler()
+
+        preserve = kw.get("preserve_curriculum", True)
+        self.world_state.reset_episode(preserve_curriculum=preserve)
+        if not preserve or difficulty_init is not None:
+            init_val = difficulty_init if difficulty_init is not None else 1
+            self.world_state.difficulty_level = max(1, min(5, init_val))
+
         self.policy_registry.reset()
-        self._ticket_queue = self._generate_ticket_batch(12)
+
+        attacker_enabled = kw.get("attacker_enabled", False)
+        if attacker_enabled:
+            from attacker import AttackerAgent
+            attacker = AttackerAgent(self.policy_registry)
+            self._ticket_queue = attacker.generate_batch(
+                12, self.world_state.difficulty_level, [], self.policy_registry.get_active(), self._rng
+            )
+        else:
+            self._ticket_queue = self._generate_ticket_batch(12)
+
         return self._build_observation(self._ticket_queue[0], None)
 
     def _shift_weights(self):
@@ -297,7 +335,11 @@ class ShiftingSandsEnv(_BaseEnv):
     def step(self, action):
         if self._done: raise RuntimeError("Episode closed.")
         self._current_step += 1
-        ticket = self._ticket_queue[self.world_state.tickets_processed]
+
+        # FIX: guard ticket index — never read past end of queue
+        ticket_idx = min(self.world_state.tickets_processed, len(self._ticket_queue) - 1)
+        ticket = self._ticket_queue[ticket_idx]
+
         drift_notice = None
         event = self.drift_scheduler.check_step(self._current_step)
         if event:
@@ -329,6 +371,7 @@ class ShiftingSandsEnv(_BaseEnv):
         self.world_state.tickets_processed += 1
         self.world_state.multi_turn_active = False
         self._conversation_history = []
+        self._was_post_drift = False  # consumed — only first step after drift gets the flag
         done = self.world_state.tickets_processed >= 12
         self._done = done
         nobs = None

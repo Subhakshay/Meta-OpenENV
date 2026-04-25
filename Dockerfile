@@ -18,12 +18,22 @@ COPY environment.py .
 COPY main.py .
 COPY db.py .
 COPY inference.py .
+COPY attacker.py .
+COPY rewards.py .
+COPY world_state.py .
+COPY policy.py .
+COPY drift_scheduler.py .
+COPY generate_training_plots.py .
 COPY openenv.yaml .
 COPY pyproject.toml .
 COPY uv.lock .
 
+# Copy server entry point (required by openenv validate)
 RUN mkdir -p server
 COPY server/app.py server/
+
+# Copy results directory
+COPY results/ results/
 
 # Set ownership
 RUN chown -R appuser:appuser /app
