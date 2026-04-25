@@ -49,40 +49,30 @@ def _extract_keywords(subject: str) -> List[str]:
 POLICY_RULE_PATTERNS = [
     r'(\d+)[- ]day[s]? (?:refund|return|window)',
     r'(?:sla|response)[^\d]*(\d+)[- ]hour',
-    r'\$(\d+)[^\d]+(?:per|/)[^\d]+min',
 ]
 
 
 def _check_hallucinations(
     text: str,
-    policy_registry: PolicyRegistry,
+    active_policy: PolicyVersion,
 ) -> int:
     """
     Scan text for policy-rule claims. Return count of hallucinations.
-    A hallucination is a claimed value that doesn't match ANY policy version.
+    A hallucination is a claimed value that doesn't match the active policy.
     """
     hallucinations = 0
-    all_versions = policy_registry.list_all_versions()
 
     for pattern in POLICY_RULE_PATTERNS:
         for match in re.finditer(pattern, text, re.I):
             claimed_value = int(match.group(1))
 
-            # Check if claimed value matches any policy version
             found = False
-            for _vid, pv in all_versions.items():
-                if 'day' in pattern.lower():
-                    if claimed_value == pv.refund_window_days:
-                        found = True
-                        break
-                elif 'hour' in pattern.lower():
-                    if claimed_value in (pv.sla_critical_hours, pv.sla_high_hours):
-                        found = True
-                        break
-                elif 'min' in pattern.lower():
-                    if claimed_value == pv.auto_escalate_threshold_per_min:
-                        found = True
-                        break
+            if 'day' in pattern.lower():
+                if claimed_value == active_policy.refund_window_days:
+                    found = True
+            elif 'hour' in pattern.lower():
+                if claimed_value in (active_policy.sla_critical_hours, active_policy.sla_high_hours):
+                    found = True
 
             if not found:
                 hallucinations += 1
@@ -98,6 +88,7 @@ def calculate_defender_reward(
     action: Dict[str, Any],
     ticket: Dict[str, Any],
     active_policy: PolicyVersion,
+    previous_policy: Optional[PolicyVersion],
     world_state: WorldState,
     was_post_drift: bool,
     task_id: int,
@@ -153,9 +144,9 @@ def calculate_defender_reward(
         else:
             category_score = -0.8
 
-        # Special case: classified as Technical when true=Security AND post-v3
+        # Special case: classified as Technical when true=Security AND Security is valid
         if (ac == "Technical" and tc == "Security"
-                and world_state.current_policy_version == "v3"):
+                and "Security" in active_policy.valid_categories):
             category_score = -1.5  # terminology drift penalty
 
         breakdown["category_score"] = round(category_score, 4)
@@ -166,15 +157,18 @@ def calculate_defender_reward(
     response_score = 0.0
     if task_id >= 2 and draft_response:
         response = draft_response
-        has_greeting = bool(re.search(
-            r'\b(hello|hi|dear|good morning|good afternoon)\b', response, re.I
-        ))
+        has_greeting = False
+        greeting_required_and_present = True
+        
+        if active_policy.required_greeting:
+             has_greeting = active_policy.required_greeting.lower() in response.lower()
+             greeting_required_and_present = has_greeting
+        else:
+             has_greeting = bool(re.search(r'\b(hello|hi|dear|good morning|good afternoon)\b', response, re.I))
 
         checklist = {
             "has_greeting": has_greeting,
-            "greeting_required_and_present": (
-                (not active_policy.response_greeting_required) or has_greeting
-            ),
+            "greeting_required_and_present": greeting_required_and_present,
             "references_subject_keyword": any(
                 kw.lower() in response.lower()
                 for kw in _extract_keywords(ticket.get("subject", ""))
@@ -190,10 +184,10 @@ def calculate_defender_reward(
         }
 
         response_score = sum(0.33 for v in checklist.values() if v)
-        breakdown["response_checklist"] = {k: v for k, v in checklist.items()}
+        breakdown["response_checklist"] = {k: float(v) for k, v in checklist.items()}
 
         # Missing required greeting penalty
-        if active_policy.response_greeting_required and not has_greeting:
+        if active_policy.required_greeting and not has_greeting:
             response_score -= 1.0
 
         # Hostile response markers
@@ -209,6 +203,15 @@ def calculate_defender_reward(
 
     escalation_score = 0.0
     true_needs_escalation = true_priority.capitalize() == "Critical"
+    
+    if active_policy.escalation_threshold == "critical_only":
+        pass # default behavior
+    elif active_policy.escalation_threshold == "high":
+        true_needs_escalation = true_priority.capitalize() in ["Critical", "High"]
+    elif active_policy.escalation_threshold == "medium":
+        true_needs_escalation = true_priority.capitalize() in ["Critical", "High", "Medium"]
+    elif active_policy.escalation_threshold == "low":
+        true_needs_escalation = True
 
     if escalate == true_needs_escalation:
         escalation_score = 1.5
@@ -227,11 +230,25 @@ def calculate_defender_reward(
     # ── Refund score (Billing tickets only, max +1.0) ────────────────────────
 
     refund_score = 0.0
+    stale_penalty_applied = False
+    
     if true_category.capitalize() == "Billing" and approve_refund is not None:
         days_since = ticket.get("days_since_purchase", 15)
         within_window = days_since <= active_policy.refund_window_days
-
-        if approve_refund and within_window:
+        
+        # Check authority
+        authority = active_policy.refund_approval_authority
+        if authority == "deny_all" and approve_refund:
+            refund_score = -2.0
+            world_state.record_stale_decision()
+            stale_penalty_applied = True
+            world_state.apply_wrong_refund(500.0)
+        elif authority == "manager_required" and approve_refund:
+            refund_score = -2.0
+            world_state.record_stale_decision()
+            stale_penalty_applied = True
+            world_state.apply_wrong_refund(500.0)
+        elif approve_refund and within_window:
             refund_score = 1.0
         elif approve_refund and not within_window:
             refund_score = -1.5
@@ -243,6 +260,22 @@ def calculate_defender_reward(
         breakdown["refund_score"] = round(refund_score, 4)
         total += refund_score
 
+    # ── Stale decision penalty checks ────────────────────────────────────────
+
+    if task_id >= 2 and draft_response and not stale_penalty_applied:
+         stale_penalty = 0.0
+         # Empathy omission check
+         if active_policy.empathy_required_below_sentiment is not None:
+              sentiment = ticket.get("sentiment_score", 0.5)
+              if sentiment < active_policy.empathy_required_below_sentiment:
+                   empathy_patterns = r'\b(understand.*frustration|sincerely apologi[sz]e|sorry to hear|I empathi[sz]e)\b'
+                   if not re.search(empathy_patterns, draft_response, re.I):
+                        stale_penalty -= 1.0
+                        world_state.record_stale_decision()
+         
+         breakdown["stale_penalty"] = round(stale_penalty, 4)
+         total += stale_penalty
+
     # ── Drift compliance bonus (post-drift steps only) ───────────────────────
 
     drift_score = 0.0
@@ -253,23 +286,47 @@ def calculate_defender_reward(
             drift_score = -2.5
             world_state.record_stale_decision()
 
+        # Compare old vs new to check if they explicitly applied changed fields
+        if previous_policy is not None:
+             changes = PolicyRegistry.get_changed_fields(previous_policy, active_policy)
+             for field_name, (old_val, new_val) in changes.items():
+                  # A simple generic bonus for applying changes
+                  if field_name == "required_greeting" and new_val and new_val.lower() in draft_response.lower():
+                       drift_score += 0.5
+                  elif field_name == "empathy_required_below_sentiment" and new_val is not None and ticket.get("sentiment_score", 1.0) < new_val:
+                       empathy_patterns = r'\b(understand.*frustration|sincerely apologi[sz]e|sorry to hear|I empathi[sz]e)\b'
+                       if re.search(empathy_patterns, draft_response, re.I):
+                            drift_score += 0.5
+                  elif field_name == "escalation_threshold":
+                       if escalate == true_needs_escalation:
+                            drift_score += 0.5
+                  elif field_name == "refund_window_days" and true_category.capitalize() == "Billing":
+                       if approve_refund is not None:
+                            drift_score += 0.5
+                  elif field_name == "refund_approval_authority" and true_category.capitalize() == "Billing":
+                       if approve_refund is not None:
+                            drift_score += 0.5
+                  elif field_name == "valid_categories":
+                       if category_correct:
+                            drift_score += 0.5
+
         if ask_clarification:
             drift_score += 1.5  # Proactively asked for clarification
 
         breakdown["drift_compliance_score"] = round(drift_score, 4)
         total += drift_score
 
-    # ── Schema bonus (v3 tickets only, Task 2+) ──────────────────────────────
+    # ── Schema bonus ──────────────────────────────
 
     schema_score = 0.0
-    if task_id >= 2 and world_state.current_policy_version == "v3" and draft_response:
+    if task_id >= 2 and active_policy.empathy_required_below_sentiment is not None and draft_response:
         sentiment_score = ticket.get("sentiment_score", 0.5)
 
         # Check if response contains sentiment-aware language
         empathy_patterns = r'\b(understand.*frustration|sincerely apologi[sz]e|sorry to hear|I empathi[sz]e)\b'
         positive_patterns = r'\b(glad|happy to|great to hear|pleased|wonderful)\b'
 
-        if sentiment_score < 0.3:
+        if sentiment_score < active_policy.empathy_required_below_sentiment:
             if re.search(empathy_patterns, draft_response, re.I):
                 schema_score = 1.0
             elif true_priority.capitalize() == "Critical":
@@ -284,14 +341,14 @@ def calculate_defender_reward(
     # ── Hallucination detection ──────────────────────────────────────────────
 
     hallucination_penalty = 0.0
-    if policy_registry and draft_response:
+    if draft_response:
         # Scan draft_response for hallucinated policy claims
         text_to_check = draft_response
         clarification_text = action.get("clarification_text", "")
         if clarification_text:
             text_to_check += " " + clarification_text
 
-        hallucination_count = _check_hallucinations(text_to_check, policy_registry)
+        hallucination_count = _check_hallucinations(text_to_check, active_policy)
         if hallucination_count > 0:
             hallucination_penalty = -3.0 * hallucination_count
             for _ in range(hallucination_count):

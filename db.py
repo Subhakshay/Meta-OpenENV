@@ -50,7 +50,8 @@ _DDL = [
         id INTEGER PRIMARY KEY AUTOINCREMENT, episode_id INTEGER NOT NULL,
         step_number INTEGER NOT NULL, from_version TEXT NOT NULL,
         to_version TEXT NOT NULL, drift_types_json TEXT,
-        agent_noticed INTEGER DEFAULT 0, created_at TEXT NOT NULL,
+        agent_noticed INTEGER DEFAULT 0, tickets_replaced INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
         FOREIGN KEY (episode_id) REFERENCES episodes(id))""",
     "CREATE INDEX IF NOT EXISTS idx_steps_ep ON steps(episode_id)",
     "CREATE INDEX IF NOT EXISTS idx_snap_ep ON world_state_snapshots(episode_id)",
@@ -115,11 +116,11 @@ async def insert_ticket_log(episode_id, step_number, ticket, difficulty_level):
              difficulty_level, ticket.get("attacker_confidence",0), _now()))
         await db.commit()
 
-async def insert_drift_event(episode_id, step_number, from_version, to_version, drift_types, agent_noticed):
+async def insert_drift_event(episode_id, step_number, from_version, to_version, drift_types, agent_noticed, tickets_replaced=0):
     async with aiosqlite.connect(_SQLITE_PATH) as db:
         await db.execute(
-            "INSERT INTO drift_events (episode_id,step_number,from_version,to_version,drift_types_json,agent_noticed,created_at) VALUES (?,?,?,?,?,?,?)",
-            (episode_id, step_number, from_version, to_version, json.dumps(drift_types), int(agent_noticed), _now()))
+            "INSERT INTO drift_events (episode_id,step_number,from_version,to_version,drift_types_json,agent_noticed,tickets_replaced,created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (episode_id, step_number, from_version, to_version, json.dumps(drift_types), int(agent_noticed), tickets_replaced, _now()))
         await db.commit()
 
 async def get_episodes(limit=50, offset=0, closed_only=True):

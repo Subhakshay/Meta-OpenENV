@@ -31,18 +31,7 @@ import db
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(name)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Try to load LLM client for attacker
-_LLM_CLIENT = None
-try:
-    from openai import OpenAI
-    _api_key = os.getenv("HF_TOKEN", "")
-    _base_url = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
-    if _api_key:
-        _LLM_CLIENT = OpenAI(api_key=_api_key, base_url=_base_url)
-except Exception:
-    pass
-
-MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
+# No LLM needed for the new template-based AttackerAgent
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -118,8 +107,6 @@ async def reset(req: Optional[ResetRequest] = None):
     # If attacker enabled, generate adversarial tickets
     if req.attacker_enabled:
         attacker = AttackerAgent(
-            llm_client=_LLM_CLIENT,
-            model_name=MODEL_NAME,
             policy_registry=env.policy_registry,
         )
         try:
@@ -214,17 +201,17 @@ async def step(req: StepRequest):
     ))
 
     # Handle drift event logging
-    if result.get("drift_notice"):
-        for evt in env.drift_scheduler.get_all_events():
-            if evt.fires_at_step == step_num:
-                asyncio.create_task(db.insert_drift_event(
-                    episode_id=episode_id,
-                    step_number=step_num,
-                    from_version=evt.from_version,
-                    to_version=evt.to_version,
-                    drift_types=evt.drift_types,
-                    agent_noticed=False,  # Will be updated after scoring
-                ))
+    if result.get("drift_notice") and env._last_reconcile_record:
+        rec = env._last_reconcile_record
+        asyncio.create_task(db.insert_drift_event(
+            episode_id=episode_id,
+            step_number=step_num,
+            from_version=rec["from_version"],
+            to_version=rec["to_version"],
+            drift_types=["dynamic_drift"],
+            agent_noticed=False,
+            tickets_replaced=rec["tickets_replaced"],
+        ))
 
     # Close episode if done
     done = result["done"]

@@ -1,127 +1,121 @@
 """
-policy.py — Policy Registry for The Gauntlet + Shifting Sands
+policy.py — Dynamic Policy Version & Registry
 
-Defines versioned company policies (v1/v2/v3) that control:
-  - Refund windows, SLA thresholds, ticket categories
-  - Schema fields, escalation thresholds, greeting requirements
-
-The PolicyRegistry is the single source of truth for all policy lookups.
-Everything else (rewards, drift, environment) reads from it.
+Defines the PolicyVersion dataclass mirroring the 8 keys in policy_matrix.py,
+and a PolicyRegistry that samples versions with a >= 2 field change constraint.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Dict, Optional
+import random
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
+
+from policy_matrix import POLICY_MATRIX
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PolicyVersion dataclass
-# ─────────────────────────────────────────────────────────────────────────────
+POLICY_FIELDS = list(POLICY_MATRIX.keys())
 
 @dataclass(frozen=True)
 class PolicyVersion:
-    """Immutable snapshot of a company policy configuration."""
     version_id: str
     refund_window_days: int
     sla_critical_hours: int
     sla_high_hours: int
-    valid_categories: list[str]
-    auto_escalate_threshold_per_min: int
-    response_greeting_required: bool
-    ticket_schema_fields: list[str]
+    valid_categories: tuple  # frozen for hashability
+    required_greeting: Optional[str]
+    empathy_required_below_sentiment: Optional[float]
+    escalation_threshold: str
+    refund_approval_authority: str
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize to a JSON-compatible dict."""
+        return {
+            "version_id": self.version_id,
+            "refund_window_days": self.refund_window_days,
+            "sla_critical_hours": self.sla_critical_hours,
+            "sla_high_hours": self.sla_high_hours,
+            "valid_categories": list(self.valid_categories),
+            "required_greeting": self.required_greeting,
+            "empathy_required_below_sentiment": self.empathy_required_below_sentiment,
+            "escalation_threshold": self.escalation_threshold,
+            "refund_approval_authority": self.refund_approval_authority,
+        }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Named policy versions
-# ─────────────────────────────────────────────────────────────────────────────
+    def get_field(self, name: str) -> Any:
+        return getattr(self, name)
 
-POLICY_V1 = PolicyVersion(
-    version_id="v1",
-    refund_window_days=30,
-    sla_critical_hours=4,
-    sla_high_hours=8,
-    valid_categories=["Billing", "Technical", "Shipping"],
-    auto_escalate_threshold_per_min=500,
-    response_greeting_required=False,
-    ticket_schema_fields=["subject", "body", "tier"],
-)
-
-POLICY_V2 = PolicyVersion(
-    version_id="v2",
-    refund_window_days=14,
-    sla_critical_hours=2,
-    sla_high_hours=4,
-    valid_categories=["Billing", "Technical", "Shipping"],
-    auto_escalate_threshold_per_min=250,
-    response_greeting_required=True,
-    ticket_schema_fields=["subject", "body", "tier"],
-)
-
-POLICY_V3 = PolicyVersion(
-    version_id="v3",
-    refund_window_days=14,
-    sla_critical_hours=2,
-    sla_high_hours=4,
-    valid_categories=["Billing", "Technical", "Shipping", "Security"],
-    auto_escalate_threshold_per_min=250,
-    response_greeting_required=True,
-    ticket_schema_fields=["subject", "body", "tier", "sentiment_score", "account_age_days"],
-)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# PolicyRegistry — runtime container
-# ─────────────────────────────────────────────────────────────────────────────
 
 class PolicyRegistry:
-    """
-    Manages the pool of policy versions and tracks which one is active.
+    def __init__(self, seed: Optional[int] = None) -> None:
+        self._rng = random.Random(seed)
+        self._history: List[PolicyVersion] = []
 
-    Usage:
-        registry = PolicyRegistry()
-        policy = registry.get_active()       # returns PolicyVersion for v1
-        registry.set_active("v2")            # switch after drift event
-        all_versions = registry.list_all_versions()  # used by hallucination checker
-    """
+    def sample_policy(self, version_id: str) -> PolicyVersion:
+        """
+        Randomly picks one value from each field in the matrix.
+        Checks _is_meaningfully_different against history. Resamples up to 10 times.
+        """
+        candidate = None
+        last = self._history[-1] if self._history else None
 
-    def __init__(self) -> None:
-        self._versions: Dict[str, PolicyVersion] = {
-            "v1": POLICY_V1,
-            "v2": POLICY_V2,
-            "v3": POLICY_V3,
-        }
-        self._active: str = "v1"
+        for _ in range(10):
+            candidate = self._generate_candidate(version_id)
+            if last is None:
+                break
+            if self._is_meaningfully_different(last, candidate):
+                break
+        
+        # After 10 attempts (or if successful), append and return
+        self._history.append(candidate)
+        return candidate
 
+    def _generate_candidate(self, version_id: str) -> PolicyVersion:
+        return PolicyVersion(
+            version_id=version_id,
+            refund_window_days=self._rng.choice(POLICY_MATRIX["refund_window_days"]),
+            sla_critical_hours=self._rng.choice(POLICY_MATRIX["sla_critical_hours"]),
+            sla_high_hours=self._rng.choice(POLICY_MATRIX["sla_high_hours"]),
+            valid_categories=tuple(self._rng.choice(POLICY_MATRIX["valid_categories"])),
+            required_greeting=self._rng.choice(POLICY_MATRIX["required_greeting"]),
+            empathy_required_below_sentiment=self._rng.choice(POLICY_MATRIX["empathy_required_below_sentiment"]),
+            escalation_threshold=self._rng.choice(POLICY_MATRIX["escalation_threshold"]),
+            refund_approval_authority=self._rng.choice(POLICY_MATRIX["refund_approval_authority"]),
+        )
+
+    def _is_meaningfully_different(self, p1: PolicyVersion, p2: PolicyVersion) -> bool:
+        diffs = sum(1 for field_name in POLICY_FIELDS if getattr(p1, field_name) != getattr(p2, field_name))
+        return diffs >= 2
+
+    def get_current_policy(self) -> PolicyVersion:
+        """Returns the most recent entry in history."""
+        if not self._history:
+            raise RuntimeError("No policies in history.")
+        return self._history[-1]
+
+    # --- Backward compatibility / Helper methods for other files ---
+    
     def get_active(self) -> PolicyVersion:
-        """Return the currently active policy version."""
-        return self._versions[self._active]
+        return self.get_current_policy()
 
-    def get_version(self, vid: str) -> PolicyVersion:
-        """Return a specific policy version by ID. Raises KeyError if not found."""
-        if vid not in self._versions:
-            raise KeyError(f"Unknown policy version '{vid}'. Known: {list(self._versions.keys())}")
-        return self._versions[vid]
-
-    def set_active(self, vid: str) -> None:
-        """Set the active policy version. Raises KeyError if vid is invalid."""
-        if vid not in self._versions:
-            raise KeyError(f"Cannot activate unknown policy '{vid}'. Known: {list(self._versions.keys())}")
-        self._active = vid
+    def get_previous(self) -> Optional[PolicyVersion]:
+        return self._history[-2] if len(self._history) >= 2 else None
 
     def active_version_id(self) -> str:
-        """Return the version ID string of the active policy."""
-        return self._active
+        return self.get_current_policy().version_id
 
-    def list_all_versions(self) -> Dict[str, PolicyVersion]:
-        """
-        Return the full dict of all registered policies.
-
-        Used by the reward calculator's hallucination checker to verify
-        whether a rule cited by the agent actually exists in any version.
-        """
-        return dict(self._versions)
+    def get_history(self) -> List[PolicyVersion]:
+        return list(self._history)
 
     def reset(self) -> None:
-        """Reset the active policy to v1 (called on episode reset)."""
-        self._active = "v1"
+        self._history.clear()
+
+    @staticmethod
+    def get_changed_fields(old: PolicyVersion, new: PolicyVersion) -> Dict[str, tuple]:
+        changes = {}
+        for field_name in POLICY_FIELDS:
+            val_old = old.get_field(field_name)
+            val_new = new.get_field(field_name)
+            if val_old != val_new:
+                changes[field_name] = (val_old, val_new)
+        return changes

@@ -1,5 +1,18 @@
-venv
-sample_inference.py
+venv/
 __pycache__/
-test_checklist.py
-.env
+.pytest_cache/
+.env
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# Text files and logs
+*.txt
+*.log
+
+# Old scripts
+sample_inference.py
+test_checklist.py

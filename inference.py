@@ -105,8 +105,8 @@ def rule_based_agent(observation: Dict[str, Any]) -> Dict[str, Any]:
     category = _classify_category(text)
     escalate = priority == "Critical"
 
-    # Draft a response
-    greeting = "Dear Customer" if observation.get("active_policy_version") in ("v2", "v3") else "Hi"
+    # Draft a response. We'll just use "Dear Customer" as a safe bet for rule-based.
+    greeting = "Dear Customer"
     subject = observation.get("subject", "your issue")
 
     response = (
@@ -245,7 +245,7 @@ async def run_episode(
 
     if attacker_enabled:
         from attacker import AttackerAgent
-        attacker = AttackerAgent(llm_client=_client, model_name=MODEL_NAME, policy_registry=env.policy_registry)
+        attacker = AttackerAgent(policy_registry=env.policy_registry)
         try:
             adv_tickets = attacker.generate_batch(
                 n=12,
@@ -304,13 +304,12 @@ async def run_episode(
         await db.insert_snapshot(episode_id, steps, env.world_state)
         await db.insert_ticket_log(episode_id, steps, current_ticket, env.world_state.difficulty_level)
 
-        if result.get("drift_notice"):
-            for evt in env.drift_scheduler.get_all_events():
-                if evt.fires_at_step == steps:
-                    await db.insert_drift_event(
-                        episode_id, steps, evt.from_version, evt.to_version,
-                        evt.drift_types, False
-                    )
+        if result.get("drift_notice") and env._last_reconcile_record:
+            rec = env._last_reconcile_record
+            await db.insert_drift_event(
+                episode_id, steps, rec["from_version"], rec["to_version"],
+                ["dynamic_drift"], False, rec["tickets_replaced"]
+            )
 
         if done:
             break

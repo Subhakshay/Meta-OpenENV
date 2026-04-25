@@ -32,7 +32,6 @@ class WorldState:
     churn_risk: float = 0.0                    # clamp 0.0–1.0
     escalation_queue_size: int = 0
     sla_breaches: int = 0
-    current_policy_version: str = "v1"
     drift_events_fired: int = 0
     agent_drift_accuracy: float = 0.0
     stale_decisions_made: int = 0
@@ -72,8 +71,7 @@ class WorldState:
         self.sla_breaches += 1
 
     def record_drift_event(self, new_version: str) -> None:
-        """Set current_policy_version. Increment drift_events_fired."""
-        self.current_policy_version = new_version
+        """Increment drift_events_fired."""
         self.drift_events_fired += 1
 
     def record_post_drift_decision(self, correct: bool) -> None:
@@ -157,7 +155,6 @@ class WorldState:
         self.churn_risk = 0.0
         self.escalation_queue_size = 0
         self.sla_breaches = 0
-        self.current_policy_version = "v1"
         self.drift_events_fired = 0
         self.agent_drift_accuracy = 0.0
         self.stale_decisions_made = 0

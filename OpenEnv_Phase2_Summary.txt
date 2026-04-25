@@ -1,43 +1,111 @@
-# The Gauntlet + Shifting Sands — Implementation Summary
+# The Gauntlet + Shifting Sands — Detailed Implementation Summary
 
-In this session, we successfully built Phase 2 of the OpenEnv Customer Support Triage environment. The goal was to transition from a static, rules-based simulation to a dynamic, self-play adversarial environment with shifting policies. 
+In this session, we successfully built Phase 2 of the OpenEnv Customer Support Triage environment. The goal was to transition from a static, rules-based simulation to a highly dynamic, self-play adversarial environment featuring live policy drift.
 
-The implementation resides primarily in the new `gauntlet_shifting_sands` package. Below is a breakdown of the core components developed:
+Below is an exhaustive, technical breakdown of the architecture, variables, rules, and mechanics introduced in this update.
+
+---
 
 ## 1. Policy Engine (`policy.py`)
-- Created the `PolicyRegistry` and `PolicyVersion` dataclasses.
-- Defined three distinct policy configurations (v1, v2, v3) that govern refund windows, SLA thresholds, valid ticket categories, required response greetings, and ticket schema fields.
+Replaced hardcoded rules with a strict, versioned `PolicyRegistry` tracking three distinct `PolicyVersion` schemas.
+- **v1 (Initial State):** 
+  - Valid Categories: `Billing`, `Technical`, `Shipping`
+  - Refund Eligibility Window: `30 days`
+  - Critical SLA: `4 hours`, High SLA: `8 hours`
+  - Required Greeting: `None`
+- **v2 (Drift at Step 4):** 
+  - Valid Categories: `Billing`, `Technical`, `Shipping`
+  - Refund Eligibility Window: `14 days` *(tightened)*
+  - Critical SLA: `2 hours`, High SLA: `4 hours` *(tightened)*
+  - Required Greeting: `"Dear Customer"` *(strict compliance check added)*
+- **v3 (Drift at Step 9):**
+  - Valid Categories: `Billing`, `Technical`, `Shipping`, `Security` *(new category introduced)*
+  - Required Greeting: `"Dear Customer"`
+  - Empathy Requirement: If `sentiment_score < 0.3`, the response *must* contain empathy keywords (e.g., "frustration", "apologize", "sorry").
+  - Schema Additions: Injects `sentiment_score` and `account_age_days` into the observation JSON.
 
-## 2. Stateful World & Curriculum (`world_state.py`)
-- Implemented the `WorldState` dataclass to persist state within an episode (e.g., `company_balance`, `churn_risk`, `escalation_queue_size`, `sla_breaches`).
-- Added a cross-episode curriculum controller: It tracks the `attacker_win_rate_50` across episodes and dynamically adjusts the `difficulty_level` up or down based on the Defender agent's performance.
+---
+
+## 2. Stateful World & Curriculum Controller (`world_state.py`)
+Introduced a persistent `WorldState` dataclass that acts as the "game engine" spanning both intra-episode steps and inter-episode sessions.
+
+### Intra-Episode State Variables
+- `company_balance`: Starts at `$10,000`. Drops by `$50` per unescalated Critical ticket, drops by `$100` on bad refunds.
+- `churn_risk`: Starts at `0.0`. Increases by `0.1` per misclassified High/Critical ticket. Caps at `1.0`.
+- `sla_breaches`: Counter tracking how many times the agent escalated a ticket with an age exceeding the active SLA policy.
+
+### Inter-Episode Curriculum (The "Gauntlet" Mechanic)
+- `attacker_win_rate_50`: A rolling Deque tracking the Attacker's win/loss record over the last 50 steps across *all* episodes in the session.
+- `difficulty_level`: A float `[0.0 - 1.0]` that dynamically scales up if the Attacker's win rate drops below `40%` (meaning the Defender is doing too well), or scales down if the Attacker's win rate exceeds `60%`.
+- **Cold-Start Protection:** The difficulty is locked at `0.3` until the deque accumulates at least `10` data points.
+
+---
 
 ## 3. Deterministic Reward System (`rewards.py`)
-- `calculate_defender_reward`: Built a multi-component scoring function covering priority accuracy, category accuracy, response quality (via regex heuristics), correct escalation, and refund decisions.
-- Added strict checks for "Stale Decisions" (using old policies post-drift) and a robust "Hallucination Checker" that scans agent text for policy claims (e.g., SLA hours, refund days) that do not exist in *any* policy version.
-- `calculate_attacker_reward`: Developed an inverse reward function where the Attacker earns points by causing the Defender to misclassify tickets or make incorrect refund decisions.
+Replaced arbitrary point systems with a deterministic, multi-objective calculation logic.
+
+### Defender Reward Formula (`calculate_defender_reward`)
+- **Priority Accuracy:** `+2.5` (Exact match), `+1.0` (Off by one level), `-2.0` (Severe miss, e.g., Low instead of Critical).
+- **Category Accuracy:** `+2.0` (Exact match), `-1.5` (Mismatch).
+- **Escalation Logic:** `+1.0` (Correctly escalated Critical), `-2.5` (Missed Critical escalation), `-1.0` (False alarm escalation).
+- **Refund Logic:** `+1.5` (Correctly approved/denied based on current `PolicyVersion` window).
+- **Drift Compliance:** `+1.5` bonus for correctly applying v2/v3 rules immediately after a System Notice.
+- **Stale Decision Penalty:** `-3.0` if the agent uses a deprecated policy (e.g., granting a 25-day refund during v2, or omitting the "Dear Customer" greeting during v2/v3).
+- **Hallucination Penalty:** `-5.0` penalty. The `hallucination_checker` regex-scans the agent's `draft_response`. If the agent cites SLA hours or Refund Days that do not exist in *any* policy version (e.g., "7 day refund", "24 hour SLA"), it gets heavily penalized.
+
+### Attacker Reward Formula (`calculate_attacker_reward`)
+- Directly tied to the Defender's failure. The Attacker earns points (`+2.0` to `+5.0`) when the Defender misclassifies priority, misses an escalation, or botches a refund on an Attacker-generated ticket.
+
+---
 
 ## 4. Policy Drift Injection (`drift_scheduler.py`)
-- Developed the `DriftScheduler` to inject sudden policy changes during an episode.
-- Pre-configured two events:
-  - Step 4 (v1 → v2): Tightens SLA windows and refund eligibility, and mandates professional greetings.
-  - Step 9 (v2 → v3): Introduces a new "Security" category and expands the observation schema to include `sentiment_score` and `account_age_days`.
+- Created `DriftScheduler` and `DriftEvent` dataclasses.
+- Mid-episode, if the current `step == fires_at_step`, the environment halts standard processing, applies the new `PolicyVersion`, and injects a `system_notice` key into the agent's observation payload containing the exact text of the policy changes.
 
-## 5. Core Environment & Ticket Engine (`environment.py`)
-- Implemented the `CustomerSupportEnv` providing the Gym-style `reset()` and `step()` API.
-- Designed 30+ ticket blueprints and variable pools (e.g., tiers, symptoms, durations, products) for procedural generation.
-- Added support for three task levels: Priority Only (easy), Full Classification (medium), and Multi-Turn (hard), including a simulated customer reply function for clarification loops.
+---
 
-## 6. Adversarial Attacker Agent (`attacker.py`)
-- Built the `AttackerAgent` which generates batches of deceptive tickets at the start of an episode.
-- Implemented 6 distinct deception strategies: Priority Camouflage, Fake Urgency, Category Confusion, Boundary Exploitation, Emotional Manipulation, and Schema Exploitation.
-- Uses LLM calls (via Groq/Llama-3) to generate tickets based on strategy prompts, with a procedural fallback mechanism to ensure environment stability.
+## 5. Adversarial Attacker Agent (`attacker.py`)
+Transitioned ticket generation from standard procedural randomization to an LLM-powered adversarial engine.
 
-## 7. API and Persistence (`main.py` & `db.py`)
-- `main.py`: Set up the FastAPI server complying with OpenEnv specifications (`/reset`, `/step`, `/episodes`, `/world_state`, `/health`). Manages session states and invokes the Attacker agent on `/reset`.
-- `db.py`: Created an asynchronous SQLite database layer (using `aiosqlite`) to persist `episodes`, `steps`, `world_state_snapshots`, `tickets_log`, and `drift_events` for extensive analytics.
+### Generation Pipeline
+1. `generate_batch(n=12)` is called at `/reset`.
+2. Randomly selects a ground-truth "Blueprint" (e.g., True Priority: High, True Category: Billing).
+3. Selects a deception strategy heavily influenced by `difficulty_level` and `defender_error_history`.
+4. Dispatches a strict system prompt to the LLM (Groq Llama-3.3-70b via `HF_TOKEN`) commanding it to write a ticket hiding the ground truth using the chosen strategy.
+5. If the LLM fails JSON parsing, it gracefully falls back to procedural string-replacement generation.
 
-## 8. Testing and Manifest (`inference.py`, `openenv.yaml`, `requirements.txt`)
-- Provided `inference.py` as a local test runner that bypasses the FastAPI server. It includes both a heuristic rule-based agent and an LLM-based defender agent.
-- Updated the `openenv.yaml` manifest to reflect the new framework, action/observation spaces, and tasks.
-- Verified functionality by running the inference test script inside the virtual environment. All tasks completed successfully, confirming proper integration of the attacker, drift mechanisms, and reward calculations.
+### Deception Strategies
+- **Priority Camouflage:** Uses polite, low-urgency language to mask Critical issues.
+- **Fake Urgency:** Uses ALL CAPS and "ASAP" to make Low priority issues seem Critical.
+- **Category Confusion:** Mashes keywords together (e.g., complaining about a "Billing" error caused by an API "Bug" to confuse Technical vs. Billing).
+- **Boundary Exploitation:** Places the issue exactly 1 day past the current refund window to test strict policy adherence.
+- **Emotional Manipulation:** Uses extreme anger or sob stories to bait the agent into bypassing policy.
+- **Schema Exploitation:** Unlocked at high difficulty; injects fake JSON strings into the email body to attempt to break the agent's JSON parser.
+
+---
+
+## 6. Core Environment & API Endpoints (`environment.py` & `main.py`)
+- **API Server:** Built an OpenEnv-compliant FastAPI server running on `uvicorn`.
+- **Endpoints Implemented:**
+  - `POST /reset`: Initializes `WorldState`, triggers the Attacker to generate a batch of 12 tickets, sets the starting policy.
+  - `POST /step`: Processes the Defender's action, calculates rewards, advances the ticket queue, checks for `DriftEvents`, updates the curriculum deque, and writes everything to the database.
+  - `GET /world_state/{session_id}`: Returns the active curriculum variables.
+  - `GET /episodes/{id}`: Returns full telemetry for rendering UI graphs.
+
+---
+
+## 7. Telemetry & Persistence (`db.py`)
+- Implemented an asynchronous SQLite database using `aiosqlite`.
+- **Tables created:**
+  - `episodes`: Tracks session IDs, attacker/drift flags, final scores, and final curriculum difficulty.
+  - `steps`: Logs every single action, exact reward breakdowns, active policy at the time, and the specific deception strategy used.
+  - `world_state_snapshots`: Logs the exact state of `company_balance` and `churn_risk` at every step for time-series graphing.
+  - `tickets_log`: Stores the ground-truth metadata of the LLM-generated tickets to compare against the agent's predictions.
+  - `drift_events`: Logs exactly when policies changed and whether the agent successfully noticed.
+
+---
+
+## 8. Inference Testing (`inference.py`)
+- Built an asynchronous local test runner (`python -m inference`) that bypasses the FastAPI HTTP layer to rapidly test the Gym environment directly against the DB.
+- Implemented `rule_based_agent` (keyword heuristics) and `llm_agent` (OpenAI-compatible client).
+- Integrated `asyncio.run()` to natively execute `db.create_episode`, `db.insert_step`, etc., ensuring local runs produce identical database logs to production API runs.

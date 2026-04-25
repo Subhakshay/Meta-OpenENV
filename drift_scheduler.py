@@ -1,115 +1,120 @@
 """
-drift_scheduler.py — Drift event injector for Shifting Sands
+drift_scheduler.py — Randomized, difficulty-aware drift scheduler
 
-Manages the schedule of policy drift events that fire at specific steps
-during an episode. When a drift fires:
-  1. The PolicyRegistry switches to the new version
-  2. The WorldState records the drift event
-  3. A system notice is sent to the Defender agent
-
-Default schedule:
-  - Step 4: v1 → v2 (policy tightening)
-  - Step 9: v2 → v3 (schema + terminology expansion)
+Generates a fully resolved list of DriftEvents before the episode begins.
 """
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from policy import PolicyRegistry
-from world_state import WorldState
+from policy import PolicyRegistry, PolicyVersion
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# DriftEvent dataclass
-# ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass
 class DriftEvent:
-    """A scheduled policy drift event."""
     fires_at_step: int
-    from_version: str
-    to_version: str
-    drift_types: List[str]    # ["policy_drift", "schema_drift", "terminology_drift"]
-    notice_text: str           # Pre-written system notice string
+    new_policy: PolicyVersion
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Default schedule
-# ─────────────────────────────────────────────────────────────────────────────
-
-DEFAULT_DRIFT_SCHEDULE = [
-    DriftEvent(
-        fires_at_step=4,
-        from_version="v1",
-        to_version="v2",
-        drift_types=["policy_drift"],
-        notice_text="""=== SYSTEM NOTICE [Step 4] ===
-Effective immediately, the following policy changes are in effect:
-- Refund eligibility window: 30 days → 14 days
-- Critical SLA threshold: 4 hours → 2 hours
-- High SLA threshold: 8 hours → 4 hours
-- Auto-escalation threshold: $500/min → $250/min
-- Customer responses must now begin with a formal greeting
-Please update all future decisions accordingly.
-=== END NOTICE ===""",
-    ),
-    DriftEvent(
-        fires_at_step=9,
-        from_version="v2",
-        to_version="v3",
-        drift_types=["policy_drift", "schema_drift", "terminology_drift"],
-        notice_text="""=== SYSTEM NOTICE [Step 9] ===
-Effective immediately, the following changes are in effect:
-- New ticket category added: Security (previously classified as Technical)
-- Any ticket involving authentication, access control, or data breach must now use category 'Security'
-- Two new ticket fields are now available: sentiment_score (0.0–1.0) and account_age_days
-- These fields should inform your escalation urgency and response tone
-Please update all future decisions accordingly.
-=== END NOTICE ===""",
-    ),
-]
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# DriftScheduler class
-# ─────────────────────────────────────────────────────────────────────────────
 
 class DriftScheduler:
-    """
-    Checks each step for scheduled drift events and applies them.
+    def __init__(self, episode_length: int, registry: PolicyRegistry, seed: Optional[int] = None) -> None:
+        self.episode_length = episode_length
+        self.registry = registry
+        self._rng = random.Random(seed)
 
-    Usage:
-        scheduler = DriftScheduler()
-        event = scheduler.check_step(4)
-        if event:
-            scheduler.apply(event, world_state, policy_registry)
-    """
-
-    def __init__(self, schedule: Optional[List[DriftEvent]] = None) -> None:
-        if schedule is None:
-            schedule = DEFAULT_DRIFT_SCHEDULE
-        self._schedule: Dict[int, DriftEvent] = {e.fires_at_step: e for e in schedule}
-
-    def check_step(self, step_number: int) -> Optional[DriftEvent]:
-        """Returns the DriftEvent if one fires at this step, else None."""
-        return self._schedule.get(step_number)
-
-    def apply(
-        self,
-        event: DriftEvent,
-        world_state: WorldState,
-        policy_registry: PolicyRegistry,
-    ) -> None:
+    def schedule_episode(self, difficulty_level: float) -> List[DriftEvent]:
         """
-        Apply a drift event:
-        1. Switch PolicyRegistry to the new version
-        2. Record the drift event in WorldState
+        Return a fully resolved list of DriftEvent objects.
+        No drift logic runs during episode execution.
         """
-        policy_registry.set_active(event.to_version)
-        world_state.record_drift_event(event.to_version)
+        if difficulty_level < 0.33:
+            count = 1
+        elif difficulty_level <= 0.66:
+            count = 2
+        else:
+            count = 3
 
-    def get_all_events(self) -> List[DriftEvent]:
-        """Return all scheduled drift events (for logging/display)."""
-        return list(self._schedule.values())
+        earliest = max(2, int((1.0 - difficulty_level) * (self.episode_length / 2.0)))
+        latest = self.episode_length - 2
+        
+        candidates = list(range(earliest, latest + 1))
+        selected_steps = []
+        
+        for _ in range(count):
+            if not candidates:
+                break
+            step = self._rng.choice(candidates)
+            selected_steps.append(step)
+            # Remove step and anything within 2 steps
+            candidates = [c for c in candidates if abs(c - step) > 2]
+            
+        selected_steps.sort()
+        
+        events = []
+        for s in selected_steps:
+            new_policy = self.registry.sample_policy(f"dyn-{s:03d}")
+            events.append(DriftEvent(fires_at_step=s, new_policy=new_policy))
+            
+        return events
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# System notice generator
+# ─────────────────────────────────────────────────────────────────────────────
+
+_FIELD_LABELS = {
+    "refund_window_days": "Refund eligibility window",
+    "sla_critical_hours": "Critical ticket SLA",
+    "sla_high_hours": "High ticket SLA",
+    "valid_categories": "Valid ticket categories",
+    "required_greeting": "Required greeting",
+    "empathy_required_below_sentiment": "Empathy sentiment threshold",
+    "escalation_threshold": "Escalation threshold",
+    "refund_approval_authority": "Refund approval authority",
+}
+
+
+def _fmt_value(field: str, val) -> str:
+    """Format a policy field value for human-readable display."""
+    if val is None:
+        return "None (not required)"
+    if field == "refund_window_days":
+        return f"{val} days"
+    if field in ("sla_critical_hours", "sla_high_hours"):
+        return f"{val} hours"
+    if field == "valid_categories":
+        cats = list(val) if isinstance(val, tuple) else val
+        return ", ".join(cats)
+    if field == "empathy_required_below_sentiment":
+        return f"{val}"
+    return str(val).replace("_", " ").title()
+
+
+def build_drift_notice(
+    old_policy: PolicyVersion,
+    new_policy: PolicyVersion,
+    step: int,
+) -> str:
+    """
+    Build a human-readable system notice describing what changed
+    between two policy versions.
+    """
+    changes = PolicyRegistry.get_changed_fields(old_policy, new_policy)
+    if not changes:
+        return ""
+
+    lines = [f"=== SYSTEM NOTICE [Step {step}] ==="]
+    lines.append("Effective immediately, the following policy changes are in effect:")
+
+    for field_name, (old_val, new_val) in changes.items():
+        label = _FIELD_LABELS.get(field_name, field_name)
+        old_str = _fmt_value(field_name, old_val)
+        new_str = _fmt_value(field_name, new_val)
+        lines.append(f"- {label}: {old_str} → {new_str}")
+
+    lines.append("Please update all future decisions accordingly.")
+    lines.append("=== END NOTICE ===")
+    return "\n".join(lines)

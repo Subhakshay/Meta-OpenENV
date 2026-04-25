@@ -18,8 +18,10 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from policy import PolicyRegistry, PolicyVersion
 from world_state import WorldState
-from drift_scheduler import DriftScheduler, DriftEvent
+from drift_scheduler import DriftScheduler, DriftEvent, build_drift_notice
 from rewards import calculate_defender_reward, calculate_attacker_reward
+from template_sampler import TemplateSampler
+from generation_engine import GenerationEngine
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -162,7 +164,7 @@ TICKET_BLUEPRINTS = [
     {"template": "Do you ship to international addresses? Planning to order {product}.",
      "true_priority": "Low", "true_category": "Shipping",
      "base_requires_escalation": False, "refund_eligible_boundary": False, "is_ambiguous": False},
-    # ── Critical / Security (v3 only) ──
+    # ── Critical / Security ──
     {"template": "URGENT: Unauthorized access detected on our {tier} account. Data may be compromised.",
      "true_priority": "Critical", "true_category": "Security",
      "base_requires_escalation": True, "refund_eligible_boundary": False, "is_ambiguous": False},
@@ -243,7 +245,7 @@ def generate_ticket_clean(
         )
 
     # v3 schema fields — always generated internally, but only exposed
-    # in observations when policy schema includes them
+    # in observations when policy requires sentiment
     ticket["sentiment_score"] = round(rng.random(), 2)
     ticket["account_age_days"] = rng.randint(1, 2000)
 
@@ -303,7 +305,7 @@ class CustomerSupportEnv:
 
     def __init__(self) -> None:
         self.policy_registry = PolicyRegistry()
-        self.drift_scheduler = DriftScheduler()
+        self.drift_scheduler = DriftScheduler(episode_length=12, registry=self.policy_registry)
         self.world_state = WorldState()
         self._rng = random.Random(42)
 
@@ -320,6 +322,10 @@ class CustomerSupportEnv:
         self._pending_drift_notice: Optional[str] = None
         self._conversation_history: List[Dict[str, str]] = []
         self._attacker_tickets: List[Dict[str, Any]] = []
+        self._attacker_agent: Any = None # Keep a reference for resampling
+        self._drift_events: List[DriftEvent] = []
+        self._template_sampler: Optional[TemplateSampler] = None
+        self._last_reconcile_record: Optional[Dict[str, Any]] = None
 
         # Step rewards log
         self._defender_rewards: List[float] = []
@@ -355,12 +361,35 @@ class CustomerSupportEnv:
         # Preserve attacker deque across episodes, reset everything else
         self.world_state.reset_episode(preserve_attacker_deque=True)
         self.world_state.difficulty_level = difficulty_init
+        
+        # Initialize policy registry and sample the first policy
         self.policy_registry.reset()
+        self.policy_registry.sample_policy("dyn-init")
 
         # Task 1: cap difficulty at 0.2
         if task_id == 1:
             self.world_state.difficulty_level = min(0.2, difficulty_init)
             self._drift_enabled = False  # Drift disabled for task 1
+
+        # Schedule drifts AFTER difficulty is set
+        if self._drift_enabled:
+            self._drift_events = self.drift_scheduler.schedule_episode(
+                difficulty_level=self.world_state.difficulty_level
+            )
+        else:
+            self._drift_events = []
+
+        # Initialize template sampler for reconciliation
+        import json as _json
+        import os as _os
+        _seed_bank_path = _os.path.join(_os.path.dirname(__file__), "seed_bank.json")
+        try:
+            with open(_seed_bank_path, "r") as f:
+                _seed_bank = _json.load(f)
+        except (FileNotFoundError, _json.JSONDecodeError):
+            _seed_bank = []
+        self._template_sampler = TemplateSampler(_seed_bank, GenerationEngine())
+        self._last_reconcile_record = None
 
         # Generate ticket queue
         self._ticket_queue = self._generate_ticket_batch(n=12)
@@ -370,6 +399,103 @@ class CustomerSupportEnv:
             ticket=self._ticket_queue[0],
             drift_notice=None,
         )
+
+    def _reconcile_queue(self, new_policy: PolicyVersion, old_policy: PolicyVersion, step: int) -> int:
+        """
+        Check all unshown tickets against the new policy using the sampler's
+        four compatibility rules. Replace incompatible tickets via sampler.sample().
+        Writes one drift_events record. Returns the count of tickets replaced.
+        """
+        replaced = 0
+        start_idx = self.world_state.tickets_processed
+
+        for i in range(start_idx, len(self._ticket_queue)):
+            ticket = self._ticket_queue[i]
+
+            # ── Four compatibility checks ────────────────────────────────
+            compatible = True
+
+            # 1. Category must be in new policy's valid set
+            if ticket.get("true_category") not in new_policy.valid_categories:
+                compatible = False
+
+            # 2. Boundary exploit window check
+            if compatible and ticket.get("deception_strategy") == "boundary_exploitation":
+                stored_days = ticket.get("boundary_exploit_day_count") or ticket.get("days_since_purchase")
+                if stored_days is not None:
+                    if abs(stored_days - new_policy.refund_window_days) > 2:
+                        compatible = False
+
+            # 3. Empathy trigger check
+            if compatible and ticket.get("_requires_empathy_trigger", False):
+                if new_policy.empathy_required_below_sentiment is None:
+                    compatible = False
+
+            if not compatible:
+                # Build a blueprint from the ticket's ground truth
+                blueprint = {
+                    "true_priority": ticket.get("true_priority", "Medium"),
+                    "true_category": ticket.get("true_category", "Technical"),
+                    "strategy": ticket.get("deception_strategy", "priority_camouflage"),
+                }
+
+                # If category itself is now invalid, pick one that IS valid
+                if blueprint["true_category"] not in new_policy.valid_categories:
+                    blueprint["true_category"] = self._rng.choice(list(new_policy.valid_categories))
+
+                replacement = None
+                if self._template_sampler is not None:
+                    replacement = self._template_sampler.sample(
+                        blueprint=blueprint,
+                        difficulty_level=self.world_state.difficulty_level,
+                        active_policy=new_policy,
+                    )
+
+                if replacement is not None:
+                    # Convert generation engine output into a queue ticket
+                    gen_meta = replacement.get("ground_truth_metadata", {})
+                    new_ticket = {
+                        "ticket_id": f"TKT-{self._rng.randint(10000, 99999)}",
+                        "subject": replacement["ticket_string"].split(".")[0][:60],
+                        "body": replacement["ticket_string"],
+                        "tier": self._rng.choice(VARS["tier"]),
+                        "true_priority": gen_meta.get("priority", blueprint["true_priority"]),
+                        "true_category": gen_meta.get("category", blueprint["true_category"]),
+                        "base_requires_escalation": gen_meta.get("priority") == "Critical",
+                        "deception_strategy": gen_meta.get("strategy", "clean"),
+                        "schema_violation": gen_meta.get("strategy") == "schema_exploitation",
+                        "is_ambiguous": False,
+                        "days_since_purchase": replacement.get("boundary_exploit_day_count", self._rng.randint(1, 60)),
+                    }
+                    new_ticket["true_refund_eligible"] = new_ticket["days_since_purchase"] <= new_policy.refund_window_days
+
+                    if replacement.get("committed_sentiment_score") is not None:
+                        new_ticket["sentiment_score"] = replacement["committed_sentiment_score"]
+                        new_ticket["_requires_empathy_trigger"] = True
+                    else:
+                        new_ticket["sentiment_score"] = round(self._rng.random(), 2)
+
+                    new_ticket["account_age_days"] = self._rng.randint(1, 2000)
+                    self._ticket_queue[i] = new_ticket
+                else:
+                    # Fallback: regenerate a clean procedural ticket
+                    fallback_bps = [bp for bp in TICKET_BLUEPRINTS
+                                    if bp["true_category"] in new_policy.valid_categories]
+                    if fallback_bps:
+                        bp = self._rng.choice(fallback_bps)
+                        self._ticket_queue[i] = generate_ticket_clean(bp, new_policy, self._rng)
+
+                replaced += 1
+
+        # Write reconciliation record to DB (fire-and-forget via the caller)
+        self._last_reconcile_record = {
+            "step": step,
+            "from_version": old_policy.version_id,
+            "to_version": new_policy.version_id,
+            "tickets_replaced": replaced,
+        }
+
+        return replaced
 
     def step(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -384,12 +510,22 @@ class CustomerSupportEnv:
         # ── Check for drift ──────────────────────────────────────────────
         drift_notice = None
         if self._drift_enabled:
-            event = self.drift_scheduler.check_step(self._current_step)
+            event = next((e for e in self._drift_events if e.fires_at_step == self._current_step), None)
             if event:
-                self.drift_scheduler.apply(event, self.world_state, self.policy_registry)
+                old_policy = self.policy_registry.get_active()
+                # Apply the event's new policy to the registry
+                # (Since schedule generated them, we just append to history)
+                # Note: actually schedule_episode already put them in schedule but didn't set active.
+                # Let's just push it to registry history so get_active() returns it.
+                self.policy_registry._history.append(event.new_policy)
+                self.world_state.record_drift_event(event.new_policy.version_id)
                 self._was_post_drift = True
-                drift_notice = event.notice_text
-                self._pending_drift_notice = event.notice_text
+                
+                drift_notice = build_drift_notice(old_policy, event.new_policy, self._current_step)
+                self._pending_drift_notice = drift_notice
+                
+                # Reconcile the queue
+                self._reconcile_queue(event.new_policy, old_policy, self._current_step)
 
         # ── Handle multi-turn ASK (Task 3) ───────────────────────────────
         if (self._task_id == 3
@@ -426,10 +562,13 @@ class CustomerSupportEnv:
 
         # ── Calculate rewards ────────────────────────────────────────────
         active_policy = self.policy_registry.get_active()
+        previous_policy = self.policy_registry.get_previous() if self._was_post_drift else None
+        
         defender_reward, breakdown = calculate_defender_reward(
             action=action,
             ticket=ticket,
             active_policy=active_policy,
+            previous_policy=previous_policy,
             world_state=self.world_state,
             was_post_drift=self._was_post_drift,
             task_id=self._task_id,
@@ -450,8 +589,8 @@ class CustomerSupportEnv:
 
         # Reset post-drift flag after the drift step is processed
         if self._was_post_drift and self._current_step > (
-            max(e.fires_at_step for e in self.drift_scheduler.get_all_events())
-            if self.drift_scheduler.get_all_events() else 0
+            max(e.fires_at_step for e in self._drift_events)
+            if self._drift_events else 0
         ):
             self._was_post_drift = False
 
@@ -498,10 +637,17 @@ class CustomerSupportEnv:
             },
         }
 
-        # Include ticket fields based on active schema
-        for field_name in active_policy.ticket_schema_fields:
+        # Include basic ticket fields
+        for field_name in ["subject", "body", "tier"]:
             if field_name in ticket:
                 obs[field_name] = ticket[field_name]
+
+        # Conditionally expose sentiment/account age
+        if active_policy.empathy_required_below_sentiment is not None:
+             if "sentiment_score" in ticket:
+                 obs["sentiment_score"] = ticket["sentiment_score"]
+             if "account_age_days" in ticket:
+                 obs["account_age_days"] = ticket["account_age_days"]
 
         # System notice (only if drift just fired)
         if drift_notice:
@@ -528,9 +674,8 @@ class CustomerSupportEnv:
         else:
             pool = list(TICKET_BLUEPRINTS)
 
-        # Filter out Security tickets if not v3
-        if self.world_state.current_policy_version != "v3":
-            pool = [b for b in pool if b["true_category"] != "Security"]
+        # Filter valid categories based on active policy
+        pool = [b for b in pool if b["true_category"] in policy.valid_categories]
 
         tickets = []
         for _ in range(n):
@@ -540,10 +685,11 @@ class CustomerSupportEnv:
 
         return tickets
 
-    def set_attacker_tickets(self, tickets: List[Dict[str, Any]]) -> None:
+    def set_attacker_tickets(self, tickets: List[Dict[str, Any]], attacker_agent: Any = None) -> None:
         """Replace the ticket queue with attacker-generated tickets."""
         self._ticket_queue = tickets
         self._attacker_tickets = tickets
+        self._attacker_agent = attacker_agent
 
     @property
     def session_id(self) -> str:
