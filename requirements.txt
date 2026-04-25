@@ -6,3 +6,4 @@ aiosqlite>=0.19.0      # always needed (SQLite local dev)
 asyncpg>=0.29.0        # only needed if DATABASE_URL is postgres
 requests
 python-dotenv>=1.0.0
+jinja2>=3.1.0

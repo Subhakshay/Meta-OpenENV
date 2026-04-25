@@ -111,7 +111,7 @@ async def reset(req: Optional[ResetRequest] = None):
         )
         try:
             adversarial_tickets = attacker.generate_batch(
-                n=12,
+                n=25,
                 difficulty_level=env.world_state.difficulty_level,
                 defender_error_history=[],  # Empty for new session
                 active_policy=env.policy_registry.get_active(),
