@@ -144,7 +144,7 @@ class CustomerSupportEnv:
         task_id: int,
         attacker_enabled: bool = False,
         drift_enabled: bool = True,
-        difficulty_init: float = 0.3,
+        difficulty_init: Optional[float] = None,
         seed: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
@@ -169,7 +169,8 @@ class CustomerSupportEnv:
 
         # Preserve attacker deque across episodes, reset everything else
         self.world_state.reset_episode(preserve_attacker_deque=True)
-        self.world_state.difficulty_level = difficulty_init
+        if difficulty_init is not None:
+            self.world_state.difficulty_level = difficulty_init
 
         # Initialize policy registry and sample the first policy
         self.policy_registry.reset()
@@ -331,7 +332,6 @@ class CustomerSupportEnv:
             raise RuntimeError("Episode already closed. Call reset() first.")
 
         self._current_step += 1
-        ticket = self._ticket_queue[self.world_state.tickets_processed]
 
         # ── Check for drift ──────────────────────────────────────────────
         drift_notice = None
@@ -348,6 +348,9 @@ class CustomerSupportEnv:
 
                 # Reconcile the queue
                 self._reconcile_queue(event.new_policy, old_policy, self._current_step)
+
+        # Grab ticket AFTER drift reconciliation so we always score the right one
+        ticket = self._ticket_queue[self.world_state.tickets_processed]
 
         # ── Handle multi-turn ASK (Task 3) ───────────────────────────────
         if (self._task_id == 3
@@ -409,12 +412,9 @@ class CustomerSupportEnv:
         self.world_state.multi_turn_active = False
         self._conversation_history = []
 
-        # Reset post-drift flag after the drift step is processed
-        if self._was_post_drift and self._current_step > (
-            max(e.fires_at_step for e in self._drift_events)
-            if self._drift_events else 0
-        ):
-            self._was_post_drift = False
+        # Reset post-drift flag unconditionally after processing
+        # (it gets set to True again at the top of step() if a new drift fires)
+        self._was_post_drift = False
 
         # Check done
         done = self.world_state.tickets_processed >= self.EPISODE_LENGTH

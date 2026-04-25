@@ -47,8 +47,8 @@ def _extract_keywords(subject: str) -> List[str]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 POLICY_RULE_PATTERNS = [
-    r'(\d+)[- ]day[s]? (?:refund|return|window)',
-    r'(?:sla|response)[^\d]*(\d+)[- ]hour',
+    r'(?:(?:our|per|under|the|current)\s+policy[^.]{0,30}?)(\d+)[- ]day[s]?\s*(?:refund|return|window)',
+    r'(?:(?:our|per|under|the|current)\s+policy[^.]{0,30}?)(?:sla|response)[^\d]*(\d+)[- ]hour',
 ]
 
 
@@ -312,6 +312,9 @@ def calculate_defender_reward(
 
         if ask_clarification:
             drift_score += 1.5  # Proactively asked for clarification
+
+        # Cap drift penalty to prevent unbounded negative accumulation
+        drift_score = max(-2.5, drift_score)
 
         breakdown["drift_compliance_score"] = round(drift_score, 4)
         total += drift_score

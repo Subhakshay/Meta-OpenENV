@@ -37,7 +37,7 @@ class DriftScheduler:
         else:
             count = 3
 
-        earliest = max(2, int((1.0 - difficulty_level) * (self.episode_length / 2.0)))
+        earliest = max(2, int(self.episode_length * 0.2))
         latest = self.episode_length - 2
         
         candidates = list(range(earliest, latest + 1))
