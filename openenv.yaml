@@ -75,6 +75,6 @@ api:
   health: "GET /health"
 
 huggingface:
-  space: "Subhakshay/support-triage-env"
+  space: "Subhakshay/Phase2"
   sdk: docker
   port: 7860
