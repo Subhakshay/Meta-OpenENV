@@ -248,7 +248,7 @@ async def run_episode(
         attacker = AttackerAgent(llm_client=_client, model_name=MODEL_NAME, policy_registry=env.policy_registry)
         try:
             adv_tickets = attacker.generate_batch(
-                n=12,
+                n=20,
                 difficulty_level=env.world_state.difficulty_level,
                 defender_error_history=[],
                 active_policy=env.policy_registry.get_active()

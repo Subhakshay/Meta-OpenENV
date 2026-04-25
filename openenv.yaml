@@ -23,17 +23,17 @@ tasks:
   - id: 1
     name: priority-only
     description: Classify ticket priority (Low/Medium/High/Critical). Easy mode — no deception, no drift.
-    max_steps: 12
+    max_steps: 20
     difficulty: easy
   - id: 2
     name: full-classification
     description: Classify priority, category, draft response, handle escalation. Drift enabled.
-    max_steps: 12
+    max_steps: 20
     difficulty: medium
   - id: 3
     name: multi-turn
     description: Full classification with clarification requests and policy drift. Multi-turn dialogue.
-    max_steps: 12
+    max_steps: 20
     difficulty: hard
 
 observation_space:
@@ -62,7 +62,7 @@ action_space:
     - approve_refund       # boolean (Billing tickets only)
 
 reward_range: [-10.0, 10.0]
-episode_length: 12
+episode_length: 20
 reset_endpoint: /reset
 step_endpoint: /step
 

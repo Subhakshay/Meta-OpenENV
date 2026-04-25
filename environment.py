@@ -301,11 +301,13 @@ class CustomerSupportEnv:
       task_id=3: Multi-turn + full classification
     """
 
+    EPISODE_LENGTH: int = 20  # Number of tickets per episode
+
     def __init__(self) -> None:
         self.policy_registry = PolicyRegistry()
         self.drift_scheduler = DriftScheduler()
         self.world_state = WorldState()
-        self._rng = random.Random(42)
+        self._rng = random.Random()
 
         # Episode state
         self._session_id: str = ""
@@ -317,6 +319,7 @@ class CustomerSupportEnv:
         self._current_step: int = 0
         self._done: bool = False
         self._was_post_drift: bool = False
+        self._last_drift_step: int = 0  # step at which the most-recent drift fired
         self._pending_drift_notice: Optional[str] = None
         self._conversation_history: List[Dict[str, str]] = []
         self._attacker_tickets: List[Dict[str, Any]] = []
@@ -330,7 +333,7 @@ class CustomerSupportEnv:
         task_id: int,
         attacker_enabled: bool = False,
         drift_enabled: bool = True,
-        difficulty_init: float = 0.3,
+        difficulty_init: Optional[float] = None,
         seed: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
@@ -344,6 +347,7 @@ class CustomerSupportEnv:
         self._current_step = 0
         self._done = False
         self._was_post_drift = False
+        self._last_drift_step = 0
         self._pending_drift_notice = None
         self._conversation_history = []
         self._defender_rewards = []
@@ -354,7 +358,8 @@ class CustomerSupportEnv:
 
         # Preserve attacker deque across episodes, reset everything else
         self.world_state.reset_episode(preserve_attacker_deque=True)
-        self.world_state.difficulty_level = difficulty_init
+        if difficulty_init is not None:
+            self.world_state.difficulty_level = difficulty_init
         self.policy_registry.reset()
 
         # Task 1: cap difficulty at 0.2
@@ -362,8 +367,14 @@ class CustomerSupportEnv:
             self.world_state.difficulty_level = min(0.2, difficulty_init)
             self._drift_enabled = False  # Drift disabled for task 1
 
-        # Generate ticket queue
-        self._ticket_queue = self._generate_ticket_batch(n=12)
+        # Randomize drift schedule each episode (two events at random steps in [1, 20])
+        if self._drift_enabled:
+            self.drift_scheduler = DriftScheduler.randomize(max_step=20, rng=self._rng)
+        else:
+            self.drift_scheduler = DriftScheduler()  # default schedule (unused)
+
+        # Generate ticket queue — 20 tickets per episode
+        self._ticket_queue = self._generate_ticket_batch(n=20)
 
         # Build first observation
         return self._build_observation(
@@ -388,6 +399,7 @@ class CustomerSupportEnv:
             if event:
                 self.drift_scheduler.apply(event, self.world_state, self.policy_registry)
                 self._was_post_drift = True
+                self._last_drift_step = self._current_step
                 drift_notice = event.notice_text
                 self._pending_drift_notice = event.notice_text
 
@@ -448,20 +460,17 @@ class CustomerSupportEnv:
         self.world_state.multi_turn_active = False
         self._conversation_history = []
 
-        # Reset post-drift flag after the drift step is processed
-        if self._was_post_drift and self._current_step > (
-            max(e.fires_at_step for e in self.drift_scheduler.get_all_events())
-            if self.drift_scheduler.get_all_events() else 0
-        ):
+        # Reset post-drift flag one step after the drift fired
+        if self._was_post_drift and self._current_step > self._last_drift_step:
             self._was_post_drift = False
 
         # Check done
-        done = self.world_state.tickets_processed >= 12
+        done = self.world_state.tickets_processed >= self.EPISODE_LENGTH
         self._done = done
 
-        # Build next observation
+        # Build next observation (queue is always padded to EPISODE_LENGTH)
         next_obs = None
-        if not done and self.world_state.tickets_processed < len(self._ticket_queue):
+        if not done:
             next_ticket = self._ticket_queue[self.world_state.tickets_processed]
             next_obs = self._build_observation(next_ticket, drift_notice)
 
@@ -513,8 +522,8 @@ class CustomerSupportEnv:
 
         return obs
 
-    def _generate_ticket_batch(self, n: int = 12) -> List[Dict[str, Any]]:
-        """Generate n clean procedural tickets from blueprints."""
+    def _generate_ticket_batch(self, n: int = 20) -> List[Dict[str, Any]]:
+        """Generate n clean procedural tickets from blueprints (default: 20 per episode)."""
         policy = self.policy_registry.get_active()
 
         # Filter blueprints based on task
@@ -541,9 +550,17 @@ class CustomerSupportEnv:
         return tickets
 
     def set_attacker_tickets(self, tickets: List[Dict[str, Any]]) -> None:
-        """Replace the ticket queue with attacker-generated tickets."""
-        self._ticket_queue = tickets
-        self._attacker_tickets = tickets
+        """
+        Replace the ticket queue with attacker-generated tickets.
+        If fewer than EPISODE_LENGTH tickets are provided, the queue is
+        automatically padded with clean procedural tickets so the episode
+        always runs to exactly EPISODE_LENGTH steps.
+        """
+        if len(tickets) < self.EPISODE_LENGTH:
+            shortfall = self.EPISODE_LENGTH - len(tickets)
+            tickets = list(tickets) + self._generate_ticket_batch(n=shortfall)
+        self._ticket_queue = tickets[:self.EPISODE_LENGTH]
+        self._attacker_tickets = self._ticket_queue
 
     @property
     def session_id(self) -> str:

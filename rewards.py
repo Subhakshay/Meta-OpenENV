@@ -216,6 +216,7 @@ def calculate_defender_reward(
         # Should have escalated but didn't
         escalation_score = -2.0
         world_state.trigger_sla_breach()
+        world_state.apply_financial_loss(100.0, agent_at_fault=True)
     elif not true_needs_escalation and escalate:
         # Over-escalation
         escalation_score = -0.5
@@ -233,9 +234,10 @@ def calculate_defender_reward(
 
         if approve_refund and within_window:
             refund_score = 1.0
+            world_state.apply_financial_loss(100.0, agent_at_fault=False)
         elif approve_refund and not within_window:
             refund_score = -1.5
-            world_state.apply_wrong_refund(500.0)
+            world_state.apply_financial_loss(500.0, agent_at_fault=True)
         elif not approve_refund and within_window:
             refund_score = -1.0
             world_state.apply_churn_delta(0.10)

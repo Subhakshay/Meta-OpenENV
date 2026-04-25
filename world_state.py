@@ -41,6 +41,7 @@ class WorldState:
     difficulty_level: float = 0.3
     tickets_processed: int = 0
     multi_turn_active: bool = False
+    agent_loss: float = 0.0
 
     # ── Internal tracking (not exported to agent) ────────────────────────────
     _post_drift_decisions_correct: int = 0
@@ -49,9 +50,11 @@ class WorldState:
 
     # ── Mutation methods ─────────────────────────────────────────────────────
 
-    def apply_wrong_refund(self, amount: float) -> None:
-        """Decrement company_balance by amount. Floor at 0."""
+    def apply_financial_loss(self, amount: float, agent_at_fault: bool) -> None:
+        """Decrement company_balance by amount. Floor at 0. Track agent_loss if their fault."""
         self.company_balance = max(0.0, self.company_balance - amount)
+        if agent_at_fault:
+            self.agent_loss += amount
 
     def apply_churn_delta(self, delta: float) -> None:
         """Add delta to churn_risk. Clamp to [0.0, 1.0]."""
@@ -120,16 +123,16 @@ class WorldState:
         rate = self.attacker_win_rate_50
         if rate > 0.75:
             # Attacker dominating → make it easier for defender
-            self.difficulty_level = max(0.0, self.difficulty_level - 0.10)
+            self.difficulty_level = max(0.0, self.difficulty_level - 0.02)
         elif 0.60 <= rate <= 0.75:
             # Balanced-ish → hold steady
             pass
         elif 0.40 <= rate < 0.60:
             # Defender doing well → increase difficulty slightly
-            self.difficulty_level = min(1.0, self.difficulty_level + 0.05)
+            self.difficulty_level = min(1.0, self.difficulty_level + 0.01)
         else:  # < 0.40
             # Defender dominating → ramp up difficulty
-            self.difficulty_level = min(1.0, self.difficulty_level + 0.15)
+            self.difficulty_level = min(1.0, self.difficulty_level + 0.02)
 
     # ── Export ────────────────────────────────────────────────────────────────
 
@@ -164,6 +167,7 @@ class WorldState:
         self.hallucinations_caught = 0
         self.tickets_processed = 0
         self.multi_turn_active = False
+        self.agent_loss = 0.0
         self._post_drift_decisions_correct = 0
         self._post_drift_decisions_total = 0
 

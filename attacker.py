@@ -1,7 +1,7 @@
 """
 attacker.py — Adversarial ticket generator for The Gauntlet
 
-The Attacker runs UPFRONT at /reset time — generates a batch of 12 adversarial
+The Attacker runs UPFRONT at /reset time — generates a batch of 20 adversarial
 tickets that are stored in the session and served one-by-one via /step.
 
 Six deception strategies:
@@ -209,15 +209,27 @@ class AttackerAgent:
         )
 
         raw = resp.choices[0].message.content.strip()
+        # Strip markdown fences
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
+        # Robust JSON extraction: find the first {...} block even if LLM added extra text
+        json_match = re.search(r'\{[^{}]*\}', raw, re.DOTALL)
+        if json_match:
+            raw = json_match.group(0)
         data = json.loads(raw)
 
-        # Validate schema
+        # Lenient validation — fill defaults for any missing fields
         required = set(policy.ticket_schema_fields)
-        available = set(data.keys())
-        if not required.issubset(available):
-            raise ValueError(f"LLM output missing required fields: {required - available}")
+        missing = required - set(data.keys())
+        if missing:
+            logger.info("Attacker LLM output missing fields %s — filling defaults", missing)
+
+        # Safely cast days_since_purchase to int (LLM may return it as a string)
+        raw_days = data.get("days_since_purchase", rng.randint(1, 60))
+        try:
+            days_since = int(raw_days)
+        except (ValueError, TypeError):
+            days_since = rng.randint(1, 60)
 
         ticket = {
             "ticket_id": f"ATK-{rng.randint(10000, 99999)}",
@@ -230,7 +242,7 @@ class AttackerAgent:
             "deception_strategy": strategy,
             "schema_violation": False,
             "is_ambiguous": blueprint.get("is_ambiguous", False),
-            "days_since_purchase": data.get("days_since_purchase", rng.randint(1, 60)),
+            "days_since_purchase": days_since,
             "sentiment_score": round(rng.random(), 2),
             "account_age_days": rng.randint(1, 2000),
             "attacker_confidence": 0.8,
@@ -238,11 +250,11 @@ class AttackerAgent:
 
         if blueprint.get("refund_eligible_boundary"):
             ticket["true_refund_eligible"] = (
-                ticket["days_since_purchase"] <= policy.refund_window_days
+                days_since <= policy.refund_window_days
             )
         else:
             ticket["true_refund_eligible"] = (
-                ticket["days_since_purchase"] <= policy.refund_window_days
+                days_since <= policy.refund_window_days
             )
 
         return ticket
