@@ -587,4 +587,5 @@ class CustomerSupportEnv:
             "hallucinations": ws.hallucinations_caught,
             "attacker_win_rate_final": ws.attacker_win_rate_50,
             "difficulty_final": ws.difficulty_level,
+            "post_drift_decisions": ws._post_drift_decisions_total,
         }

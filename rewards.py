@@ -102,12 +102,18 @@ def calculate_defender_reward(
     was_post_drift: bool,
     task_id: int,
     policy_registry: Optional[PolicyRegistry] = None,
+    *,
+    mutate_curriculum: bool = True,
 ) -> Tuple[float, Dict[str, float]]:
     """
     Returns (total_reward, reward_breakdown_dict).
     reward_breakdown_dict has keys for each sub-component for logging.
 
     All logic is deterministic — no LLM calls.
+
+    If mutate_curriculum is False, skip recording attacker win/loss and
+    run_curriculum_step (used when grading offline rollouts with a
+    throwaway WorldState so difficulty does not desync from the live env).
     """
     breakdown: Dict[str, float] = {}
     total = 0.0
@@ -309,11 +315,11 @@ def calculate_defender_reward(
             correct=(priority_correct and category_correct)
         )
 
-    # Record attacker result: attacker wins if defender got negative reward
-    world_state.record_attacker_result(attacker_won=(total < 0))
-
-    # Run curriculum adjustment
-    world_state.run_curriculum_step()
+    if mutate_curriculum:
+        # Record attacker result: attacker wins if defender got negative reward
+        world_state.record_attacker_result(attacker_won=(total < 0))
+        # Run curriculum adjustment
+        world_state.run_curriculum_step()
 
     breakdown["total"] = round(total, 4)
     return round(total, 4), breakdown
