@@ -1,0 +1,423 @@
+The Gauntlet + Shifting Sands: Full Project Architecture Overview
+=================================================================
+
+1. Project Overview
+-------------------
+The Gauntlet is an advanced, OpenEnv-compliant Reinforcement Learning (RL) environment designed to test and train Large Language Models (LLMs) in a high-pressure, adversarial Customer Support triage scenario. It is deployed as a Docker-based HuggingFace Space at Subhakshay/support-triage-env.
+
+The core challenge for the agent (the "Defender") is to accurately classify incoming support tickets by Priority (Low/Medium/High/Critical) and Category (Billing/Technical/Shipping/Security), decide on escalations and refunds, and draft professional responses — all while navigating two major dynamic obstacles:
+
+  1. "Shifting Sands": The company's internal policies dynamically change mid-episode via Policy Drift events (v1 → v2 → v3). The agent must detect these changes from system notices and immediately adapt its behaviour.
+  2. "The Attacker": An adversarial agent generates deceptive tickets using 6 distinct strategies designed to fool the Defender into misclassifying priority, category, or refund eligibility.
+
+The environment utilises a Curriculum Controller that automatically adjusts the difficulty based on the Defender's historical performance, creating a self-improving training loop where better agents face harder environments.
+
+
+2. File Structure
+-----------------
+Root directory contains the following production files:
+
+  environment.py       Core CustomerSupportEnv class (reset/step loop)
+  world_state.py       WorldState dataclass + curriculum controller
+  rewards.py           Deterministic multi-objective reward calculator
+  policy.py            PolicyRegistry + PolicyVersion definitions (v1/v2/v3)
+  drift_scheduler.py   DriftScheduler + DriftEvent scheduling logic
+  attacker.py          AttackerAgent (LLM + procedural fallback)
+  main.py              FastAPI server (OpenEnv-compliant HTTP API)
+  db.py                Async SQLite telemetry layer (aiosqlite)
+  inference.py         Local episode runner (bypasses HTTP overhead)
+  run_baseline.py      Multi-episode baseline runner with DB + plots
+  openenv.yaml         OpenEnv manifest (tasks, observation/action spaces)
+  train_colab.ipynb    GRPO training notebook for Google Colab (T4 GPU)
+
+
+3. Environment Logic (environment.py)
+--------------------------------------
+The CustomerSupportEnv class implements a Gym-style reset()/step() API.
+
+EPISODE STRUCTURE:
+  - Each episode consists of 20 tickets (EPISODE_LENGTH = 20).
+  - Three task modes are supported:
+      task_id=1: Priority-only classification (easy, difficulty capped at 0.2, drift disabled)
+      task_id=2: Full classification + response drafting + escalation/refund decisions
+      task_id=3: Multi-turn dialogue with clarification requests
+
+TICKET GENERATION:
+  - 30+ ticket blueprints are defined inline, covering all priority×category combinations
+    including boundary exploitation (refund window edge cases) and ambiguous tickets.
+  - Variable pools (VARS dict) provide randomised values for tier, symptom, duration, loss,
+    product, charge_amount, order_id, etc.
+  - The _fill() function uses regex substitution to populate {placeholder} variables.
+  - generate_ticket_clean() produces a full ticket dict from a blueprint, including:
+    ticket_id, subject, body, tier, true_priority, true_category,
+    base_requires_escalation, refund_eligible_boundary, is_ambiguous,
+    days_since_purchase, true_refund_eligible, sentiment_score, account_age_days.
+  - Security-category tickets are filtered out of the generation pool unless the active
+    policy version is v3 (when the Security category becomes valid).
+
+RESET FLOW (reset()):
+  1. Generates a new session_id (UUID).
+  2. Calls world_state.reset_episode(preserve_attacker_deque=True) — resets all
+     episode-level metrics but preserves the cross-episode attacker results deque,
+     win rate, and difficulty level for curriculum continuity.
+  3. If difficulty_init is explicitly provided, overrides the preserved difficulty.
+  4. For task_id=1, caps difficulty at 0.2 and disables drift.
+  5. Resets the PolicyRegistry to v1.
+  6. If drift is enabled, creates a randomised DriftScheduler with two events
+     at uniformly sampled steps in [1, 20].
+  7. Generates a queue of 20 clean procedural tickets.
+  8. Returns the first observation.
+
+STEP FLOW (step()):
+  1. Increments _current_step.
+  2. Retrieves the current ticket from the queue.
+  3. Checks for a scheduled drift event at this step. If one fires:
+     - Applies the drift via DriftScheduler.apply() (switches PolicyRegistry, records in WorldState).
+     - Sets _was_post_drift = True and stores the drift notice text.
+  4. For Task 3, handles the ask_clarification action:
+     - Simulates a customer reply using category-specific clarification templates.
+     - Awards +1.0 for asking on genuinely ambiguous tickets, -0.5 for unnecessary delay.
+     - Returns early without advancing the ticket counter.
+  5. Calls calculate_defender_reward() and calculate_attacker_reward() (if attacker enabled).
+  6. Appends rewards to episode logs.
+  7. Advances tickets_processed and resets multi-turn state.
+  8. Resets _was_post_drift one step after the drift fired.
+  9. Checks if done (tickets_processed >= EPISODE_LENGTH).
+  10. Builds and returns the next observation (or None if done).
+
+OBSERVATION SCHEMA:
+  The observation dict exposed to the Defender includes:
+    - ticket_id, active_policy_version
+    - world_state_summary: {company_balance, churn_risk, escalation_queue_size, sla_breaches, tickets_processed}
+    - Ticket fields gated by the active policy's ticket_schema_fields list:
+        v1/v2: subject, body, tier
+        v3: subject, body, tier, sentiment_score, account_age_days
+    - system_notice: only present on the step a drift fires
+    - conversation_history: only present during active multi-turn (Task 3)
+
+ATTACKER INTEGRATION:
+  - set_attacker_tickets() replaces the ticket queue with attacker-generated tickets.
+  - If fewer than EPISODE_LENGTH tickets are provided, the queue is padded with clean tickets.
+
+MULTI-TURN (Task 3):
+  - simulate_customer_reply() selects a category-specific reply template and fills variables.
+  - Reply templates exist for Billing, Technical, Shipping, and Security categories.
+
+
+4. World State (world_state.py)
+-------------------------------
+The WorldState dataclass tracks all episodic and cross-episode state.
+
+PUBLIC FIELDS (exported to agent via to_export_dict()):
+  company_balance: float = 10,000.0     Financial health, decremented by wrong refunds/missed escalations
+  churn_risk: float = 0.0               Customer satisfaction proxy, clamped [0.0, 1.0]
+  escalation_queue_size: int = 0        Active escalations; triggers SLA breach if > 5
+  sla_breaches: int = 0                 Count of SLA violations
+  current_policy_version: str = "v1"    Tracks which policy is currently active
+  drift_events_fired: int = 0           Count of drift events that have occurred
+  agent_drift_accuracy: float = 0.0     Ratio of correct post-drift decisions
+  stale_decisions_made: int = 0         Count of decisions using old policy after drift
+  hallucinations_caught: int = 0        Count of hallucinated policy values detected
+  attacker_win_rate_50: float = 0.5     Rolling 50-step window, PERSISTS across episodes
+  difficulty_level: float = 0.3         Curriculum difficulty, PERSISTS across episodes
+  tickets_processed: int = 0            Episode progress counter
+  multi_turn_active: bool = False       Whether a clarification exchange is in progress
+  agent_loss: float = 0.0               Cumulative financial loss attributable to agent errors
+
+INTERNAL FIELDS (not exported):
+  _post_drift_decisions_correct / _total   Numerator/denominator for agent_drift_accuracy
+  _recent_attacker_results: deque(maxlen=50)   Rolling window of win/loss results, PERSISTS across episodes
+
+MUTATION METHODS:
+  apply_financial_loss(amount, agent_at_fault)   Decrements balance; tracks agent_loss if agent_at_fault=True
+  apply_churn_delta(delta)                       Adjusts churn_risk, clamped [0.0, 1.0]
+  apply_escalation()                             Increments queue; auto-triggers SLA breach if queue > 5
+  close_escalation()                             Decrements queue (floor at 0)
+  trigger_sla_breach()                           Increments sla_breaches
+  record_drift_event(new_version)                Updates current_policy_version, increments drift_events_fired
+  record_post_drift_decision(correct)            Updates drift accuracy numerator/denominator
+  record_stale_decision()                        Increments stale_decisions_made
+  record_hallucination()                         Increments hallucinations_caught
+  record_attacker_result(attacker_won)            Appends to deque, recomputes attacker_win_rate_50
+
+CURRICULUM CONTROLLER (run_curriculum_step()):
+  Called after every step. Adjusts difficulty_level based on attacker_win_rate_50.
+  Cold start protection: no adjustment until the deque has >= 10 entries.
+
+  Rate bands and step sizes:
+    rate > 0.75:           difficulty -= 0.02   (attacker dominating, ease off)
+    0.60 <= rate <= 0.75:  hold steady          (balanced)
+    0.40 <= rate < 0.60:   difficulty += 0.01   (defender doing well)
+    rate < 0.40:           difficulty += 0.02   (defender dominating, ramp up)
+
+  With 20 steps per episode and max step size of 0.02, difficulty can move by at
+  most 0.40 per episode, requiring multiple episodes to traverse the full [0.0, 1.0] range.
+
+RESET BEHAVIOUR (reset_episode()):
+  Resets all episode-level fields to defaults. If preserve_attacker_deque=True (the default),
+  preserves _recent_attacker_results, attacker_win_rate_50, and difficulty_level across episodes.
+
+
+5. Dynamic Policy & Drift Scheduler (policy.py & drift_scheduler.py)
+---------------------------------------------------------------------
+POLICY VERSIONS:
+  Three named policy versions are defined as frozen dataclasses:
+
+  v1 (Initial):
+    - refund_window_days: 30
+    - sla_critical_hours: 4, sla_high_hours: 8
+    - valid_categories: [Billing, Technical, Shipping]
+    - auto_escalate_threshold_per_min: 500
+    - response_greeting_required: False
+    - ticket_schema_fields: [subject, body, tier]
+
+  v2 (Policy Tightening):
+    - refund_window_days: 14 (halved)
+    - sla_critical_hours: 2, sla_high_hours: 4 (halved)
+    - valid_categories: [Billing, Technical, Shipping] (unchanged)
+    - auto_escalate_threshold_per_min: 250 (halved)
+    - response_greeting_required: True (new requirement)
+    - ticket_schema_fields: [subject, body, tier] (unchanged)
+
+  v3 (Schema + Terminology Expansion):
+    - refund_window_days: 14, SLAs: 2h/4h (same as v2)
+    - valid_categories: [Billing, Technical, Shipping, Security] (Security added)
+    - auto_escalate_threshold_per_min: 250 (same as v2)
+    - response_greeting_required: True (same as v2)
+    - ticket_schema_fields: [subject, body, tier, sentiment_score, account_age_days] (expanded)
+
+POLICY REGISTRY:
+  The PolicyRegistry class manages the pool of versions and tracks the active one.
+  Methods: get_active(), get_version(vid), set_active(vid), active_version_id(),
+  list_all_versions() (used by hallucination checker), reset() (back to v1).
+
+DRIFT SCHEDULER:
+  The DriftScheduler manages two drift events per episode:
+    Event 1: v1 → v2 (policy tightening — refund window, SLA thresholds, greeting requirement)
+    Event 2: v2 → v3 (schema expansion — Security category, sentiment/account_age fields)
+
+  Each DriftEvent contains: fires_at_step, from_version, to_version, drift_types, notice_text.
+
+  Notice templates are pre-written and include the exact numeric changes so the agent
+  can read and apply them. Step numbers are filled in at runtime.
+
+  Scheduling modes:
+    - Default: fixed at steps 4 and 9
+    - Randomised: DriftScheduler.randomize(max_step=20) samples two steps uniformly
+      without replacement from [1, max_step]. The earlier step always becomes v1→v2.
+
+  The environment uses randomised scheduling, creating a fresh schedule each episode.
+
+
+6. The Attacker Logic (attacker.py)
+------------------------------------
+The AttackerAgent operates entirely during the /reset phase, populating the ticket queue
+with adversarial challenges before the Defender sees any tickets.
+
+SIX DECEPTION STRATEGIES:
+  1. Priority Camouflage    — Hide critical issues in casual, relaxed language
+  2. Fake Urgency           — Inflate urgency with ALL CAPS and deadline pressure on minor issues
+  3. Category Confusion     — Mix billing AND technical AND shipping keywords to confuse classification
+  4. Boundary Exploitation  — Place refund requests exactly on the policy window edge (±1 day)
+  5. Emotional Manipulation — Use personal stories, family impact, and threats to leave
+  6. Schema Exploitation    — Inject fake internal notes and misleading metadata fields
+
+GENERATION PIPELINE:
+  1. Strategy selection based on difficulty level:
+     - difficulty < 0.3: only Priority Camouflage and Fake Urgency
+     - 0.3 <= difficulty <= 0.6: all 6 strategies
+     - difficulty > 0.6: Priority Camouflage, Boundary Exploitation, Category Confusion, Schema Exploitation
+  2. Strategy weighting by defender error history (if available):
+     - Category Confusion weighted 2x if defender recently got categories wrong
+     - Boundary Exploitation weighted 3x if defender recently made refund errors
+  3. For each ticket, attempts LLM generation first (via OpenAI-compatible API using
+     strategy-specific prompts), with procedural fallback if LLM is unavailable or fails.
+  4. Procedural fallback applies strategy-specific text transformations to clean blueprints
+     (e.g., lowercasing for camouflage, ALL CAPS for fake urgency, boundary day injection).
+  5. All tickets include deception_strategy and attacker_confidence metadata for telemetry.
+
+
+7. The Defender & Reward Logic (rewards.py)
+--------------------------------------------
+The Defender's performance is evaluated by a 100% deterministic, multi-objective reward function.
+No LLM calls are made during scoring.
+
+REWARD COMPONENTS:
+
+  1. Priority Score (max +2.0):
+     - Exact match: +2.0 (post-drift) or +1.0 (normal)
+     - Off by 1 level: -0.5
+     - Off by 2+ levels: -1.5
+     - Missing Critical: additional -2.0 penalty + SLA breach triggered
+
+  2. Category Score (max +1.5, Task 2+ only):
+     - Exact match: +1.5 (post-drift) or +0.8 (normal)
+     - Mismatch: -0.8
+     - Special case: classifying Security as Technical under v3 → -1.5 (terminology drift penalty)
+
+  3. Response Quality Score (max +2.0, Task 2+ only):
+     Checklist-based scoring (+0.33 per item):
+     - Has greeting
+     - Greeting present when required by policy
+     - References ticket subject keywords
+     - Uses resolution language (investigate/resolve/fix/escalate/etc.)
+     - Professional tone (no "idk", "lol", "whatever")
+     - Appropriate length (30-200 words)
+     Missing required greeting: additional -1.0 penalty
+     Hostile response markers trigger +0.15 churn risk delta
+
+  4. Escalation Score (max +1.5):
+     - Correct decision: +1.5
+     - Missed Critical escalation: -2.0 + SLA breach + $100 financial loss (agent_at_fault=True)
+     - Over-escalation: -0.5 + escalation queue increment
+
+  5. Refund Score (Billing tickets only, max +1.0):
+     - Approved within window: +1.0, $100 loss (not agent's fault)
+     - Approved outside window: -1.5, $500 loss (agent_at_fault=True)
+     - Denied within window: -1.0, +0.10 churn risk
+
+  6. Drift Compliance Bonus (post-drift steps only):
+     - Correct priority AND category on first step after drift: +1.0
+     - Incorrect: -2.5 + stale decision recorded
+     - Asked clarification: additional +1.5
+
+  7. Schema Bonus (v3 tickets only, Task 2+):
+     - Low sentiment (< 0.3) + empathy language in response: +1.0
+     - Missed low sentiment on Critical: -0.5
+     - High sentiment (> 0.7) + positive language: +1.0
+
+  8. Hallucination Penalty:
+     - Regex-scans draft_response + clarification_text for policy-rule claims
+     - Three patterns: "{N}-day refund/return", "SLA {N}-hour", "${N}/min"
+     - Each claimed value is checked against ALL registered policy versions
+     - Penalty: -3.0 per hallucinated value + hallucination count recorded
+
+  After scoring, the reward function also:
+  - Records post-drift decision accuracy in WorldState
+  - Records whether the attacker won this step (total < 0)
+  - Runs the curriculum controller step
+
+ATTACKER REWARD (calculate_attacker_reward):
+  Inverse scoring rewarding the attacker for fooling the defender:
+  - Priority mismatch: +2.0 (match: -1.0)
+  - Category mismatch: +1.5 (match: -0.8)
+  - Missed Critical escalation: +3.0
+  - Schema violation penalty: -2.0
+  - Successful boundary exploitation: +1.0
+
+
+8. FastAPI Server (main.py)
+----------------------------
+OpenEnv-compliant HTTP API running on uvicorn (port 7860).
+
+ENDPOINTS:
+  POST /reset                    Start new episode. Returns session_id + first observation.
+  POST /step                     Take one action. Returns reward, next observation, done flag.
+  GET  /episodes                 List completed episodes (with pagination).
+  GET  /episodes/{episode_id}    Full episode detail (steps, snapshots, drift events).
+  GET  /world_state/{session_id} Current world state for an active session.
+  GET  /health                   Health check.
+
+FEATURES:
+  - Session store (in-memory dict) maps session_id → env + episode_id.
+  - Attacker integration: if attacker_enabled, generates adversarial tickets during /reset
+    using AttackerAgent with optional LLM (Groq API via HF_TOKEN env var).
+  - All DB writes are fire-and-forget (asyncio.create_task) to avoid blocking the API response.
+  - Drift event logging captures from_version, to_version, and drift_types.
+  - Episode is auto-closed on the final step with get_episode_metrics().
+
+
+9. Database & Telemetry (db.py)
+--------------------------------
+Async SQLite database (gauntlet.db) via aiosqlite.
+
+TABLES:
+  episodes                 Episode metadata: session_id, task_id, attacker/drift flags,
+                           difficulty_init, created_at, closed_at, and all final metrics
+                           (mean_defender_reward, mean_attacker_reward, final_balance,
+                           sla_breaches, drift_accuracy, stale_decisions, hallucinations,
+                           attacker_win_rate_final, difficulty_final)
+
+  steps                    Per-step data: ticket_id, action_json, defender_reward,
+                           attacker_reward, reward_breakdown_json, policy_version_at_step,
+                           was_post_drift, deception_strategy
+
+  world_state_snapshots    Per-step WorldState JSON snapshots with indexed fields:
+                           current_policy_version, drift_events_fired, difficulty_level
+
+  tickets_log              Per-step ticket JSON with ground truth: true_priority,
+                           true_category, deception_strategy, difficulty_level_at_gen,
+                           attacker_confidence
+
+  drift_events             Drift event log: from_version, to_version, drift_types_json,
+                           agent_noticed flag
+
+All tables have episode_id foreign keys and are indexed for efficient queries.
+
+
+10. Local Testing (inference.py)
+---------------------------------
+Bypasses the HTTP overhead and runs episodes directly against CustomerSupportEnv.
+
+TWO AGENT MODES:
+  - Rule-Based Agent: keyword-matching heuristic using priority/category signal lists.
+    Handles greeting adaptation (v2/v3), sentiment-aware responses (v3), and
+    Critical → escalation mapping.
+  - LLM Agent: Uses OpenAI-compatible API (Groq by default) with a structured system prompt.
+    Falls back to rule-based on any error.
+
+LOGGING FORMAT:
+  [START] task=N env=gauntlet-shifting-sands model=Name
+  [STEP]  step=N action={...} reward=X.XX done=true/false error=null
+  [END]   success=true/false steps=N score=X.XXX rewards=X.XX,X.XX,...
+
+DEFAULT TEST SUITE (main()):
+  Runs 4 episodes: Task 1 (clean), Task 2 (drift), Task 2 (attacker+drift), Task 3 (multi-turn).
+  All results are persisted to gauntlet.db via the db module.
+
+
+11. Baseline Training (run_baseline.py)
+----------------------------------------
+Multi-episode baseline runner that uses the inference module's run_episode() with the
+rule-based agent. Runs NUM_EPISODES (configurable, default 60) episodes with
+task_id=2, attacker_enabled=True, drift_enabled=True.
+
+Deletes and recreates gauntlet.db before each run for clean telemetry.
+
+Generates 6 diagnostic plots to the plots/ directory:
+  1. Defender Reward (10-episode rolling average)
+  2. Drift Accuracy (10-episode rolling average)
+  3. Stale Decision Rate (per 200-step intervals)
+  4. Attacker Win Rate (rolling 50-step window)
+  5. Difficulty Level Over Time
+  6. Company Balance Timeline (single episode sample)
+
+
+12. GRPO Training (train_colab.ipynb)
+--------------------------------------
+Google Colab notebook for fine-tuning unsloth/Qwen2.5-1.5B-Instruct using GRPO
+(Group Relative Policy Optimization) on a free T4 GPU.
+
+NOTEBOOK STRUCTURE (9 cells):
+  1. Install: unsloth, trl, peft, accelerate, bitsandbytes, matplotlib, nest_asyncio
+  2. Load Model: 4-bit quantization, max_seq_length=2048
+  3. Add LoRA: r=16, target_modules=[q_proj, v_proj, k_proj, o_proj], gradient_checkpointing="unsloth"
+  4. Reward Function: Synchronous wrapper around CustomerSupportEnv for GRPOTrainer
+  5. Agent Logic: unsloth_agent() for post-training evaluation
+  6. Build Dataset: 100 observation prompts collected via dummy actions
+  7. GRPO Training: GRPOConfig with batch_size=2, grad_accum=4, lr=2e-5, epochs=3
+  8. Post-Training Evaluation: 30 episodes with iterative progress saving
+  9. Plot Results: Dark-theme 3-subplot figure (episode reward, step distribution, difficulty)
+
+
+13. OpenEnv Manifest (openenv.yaml)
+------------------------------------
+Declares the environment for the OpenEnv ecosystem:
+  - Name: gauntlet-shifting-sands v2.0.0
+  - Themes: self-improvement, world-modeling
+  - Tags: openenv, adversarial, policy-drift, self-play, customer-support, rl-environment
+  - Three tasks defined with difficulty levels (easy/medium/hard)
+  - Observation and action space schemas
+  - Reward range: [-10.0, 10.0]
+  - Episode length: 20 steps
+  - HuggingFace Space: Subhakshay/support-triage-env (Docker SDK, port 7860)
