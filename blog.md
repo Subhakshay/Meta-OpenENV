@@ -145,10 +145,13 @@ To evaluate the effectiveness of the OpenEnv framework, we benchmarked the inter
 | --- | --- | --- | --- |
 | **Defender** | Qwen 2.5-1.5B-Instruct | 1.5B | 4-bit |
 | **Attacker** | Llama 3.2-1B-Instruct | 1B | 4-bit |
+
 ![Im](results/qwenvsllama.png)
+
 **The Result:** Despite having a 50% larger parameter count, the 1.5B Defender was consistently outperformed by the 1B Attacker, with the Attacker's win rate increasing even as environment difficulty leveled off.
 
-## Why the 1B Attacker "Won"
+### Why the 1B Attacker "Won"
+
 The Attacker's task (creative text generation) is natively easier for LLMs than the Defender's task (strict JSON classification and logic). The Llama-1B model proved more robust at finding "Achilles' heels" in the Defender's reasoning. This highlights a **"Complexity Gap"** where raw model size does not guarantee safety against adversarial ticket generation, proving that a static 1.5B model remains brittle without the continuous adaptation provided by the RL environment.
 
 ## Comparison 2: Scale & Stability (Llama-3-8B vs. 1B)
@@ -168,5 +171,3 @@ The Attacker's task (creative text generation) is natively easier for LLMs than 
 
 ![Post-GRPO Eval Metrics](results/PostGPRO.jpeg)
 *Figure 4: Post-GRPO evaluation dashboard — showing Defender mean reward, drift accuracy, curriculum difficulty, attacker win rate, stale decisions, and SLA breaches across 10 eval episodes.*
-
-
