@@ -21,6 +21,9 @@ A real-world, stateful reinforcement learning environment built on the [OpenEnv]
 
 Agents act as **customer support triage coordinators**: reading incoming tickets, assigning priority and category, drafting responses, and managing escalations — all while an intelligent attacker tries to deceive them with increasingly sophisticated strategies.
 
+### 🌐 **[Live Dashboard →](https://subhakshay-support-triage-env.hf.space/)**
+
+[![HF Space](https://img.shields.io/badge/🤗_HuggingFace-Live_Dashboard-blue)](https://subhakshay-support-triage-env.hf.space/)
 [![Docker](https://img.shields.io/badge/docker-ready-blue)](https://hub.docker.com/)
 [![Python](https://img.shields.io/badge/python-3.11+-green)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/backend-fastapi-teal)](https://fastapi.tiangolo.com/)

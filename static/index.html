@@ -11,7 +11,7 @@
 
 <canvas id="particles-canvas"></canvas>
 
-<!-- ── Navbar ────────────────────────────────────────────────────────────── -->
+<!-- ── Navbar ──────────────────────────────────────────────────────────── -->
 <nav class="navbar">
   <div class="nav-brand">⚡ Meta-OpenENV</div>
   <ul class="nav-links">
@@ -24,7 +24,7 @@
   <div class="nav-status"><span class="dot"></span> API Live</div>
 </nav>
 
-<!-- ── Hero ──────────────────────────────────────────────────────────────── -->
+<!-- ── Hero ────────────────────────────────────────────────────────────── -->
 <section class="hero">
   <div class="hero-badge">🛡️ OpenEnv Hackathon Submission</div>
   <h1>Adversarial Self-Play<br>Triage Environment</h1>
@@ -43,82 +43,63 @@
       <div class="label">Deception Strategies</div>
     </div>
     <div class="hero-stat">
-      <div class="value" data-count="10" data-prefix="M+">0</div>
-      <div class="label">Unique Tickets</div>
+      <div class="value" data-count="6">0</div>
+      <div class="label">Policy Versions</div>
     </div>
   </div>
 </section>
 
-<!-- ── Architecture ─────────────────────────────────────────────────────── -->
+<!-- ── Architecture ───────────────────────────────────────────────────── -->
 <section class="section" id="architecture">
   <div class="section-header reveal">
     <div class="section-tag">System Design</div>
     <h2 class="section-title">Adversarial Feedback Loop</h2>
     <p class="section-subtitle">The attacker reads the defender's mistakes from the database and adapts its strategy in real-time</p>
   </div>
-
   <div class="arch-flow reveal">
-    <div class="arch-node attacker">
-      <div class="node-icon">🔴</div>
-      <div class="node-label">Attacker</div>
-      <div class="node-detail">8 deception strategies<br>ELO rating system</div>
-    </div>
+    <div class="arch-node attacker"><div class="node-icon">🔴</div><div class="node-label">Attacker</div><div class="node-detail">8 deception strategies<br>ELO rating system</div></div>
     <div class="arch-arrow">→</div>
-    <div class="arch-node env">
-      <div class="node-icon">🌍</div>
-      <div class="node-label">Environment</div>
-      <div class="node-detail">GauntletEnv<br>Policy drift events</div>
-    </div>
+    <div class="arch-node env"><div class="node-icon">🌍</div><div class="node-label">Environment</div><div class="node-detail">GauntletEnv<br>Policy drift events</div></div>
     <div class="arch-arrow">→</div>
-    <div class="arch-node defender">
-      <div class="node-icon">🟢</div>
-      <div class="node-label">Defender</div>
-      <div class="node-detail">Qwen 2.5 0.5B<br>LoRA fine-tuned</div>
-    </div>
+    <div class="arch-node defender"><div class="node-icon">🟢</div><div class="node-label">Defender</div><div class="node-detail">Qwen 2.5 0.5B<br>LoRA fine-tuned</div></div>
     <div class="arch-arrow">→</div>
-    <div class="arch-node db">
-      <div class="node-icon">🗄️</div>
-      <div class="node-label">gauntlet.db</div>
-      <div class="node-detail">Weakness queries<br>Template fitness</div>
-    </div>
+    <div class="arch-node db"><div class="node-icon">🗄️</div><div class="node-label">gauntlet.db</div><div class="node-detail">Weakness queries<br>Template fitness</div></div>
   </div>
-
   <div style="text-align:center; margin-top:1rem;" class="reveal">
     <div class="arch-arrow" style="font-size:1rem; display:inline-block;">↻ Attacker reads DB → targets weakest categories → defender learns → attacker adapts</div>
   </div>
-
   <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:1rem; margin-top:2.5rem;" class="reveal">
-    <div class="card" style="text-align:center;">
-      <div style="font-size:2rem; margin-bottom:0.5rem;">📖</div>
-      <div style="font-weight:600; font-size:0.9rem;">Read Weaknesses</div>
-      <div style="font-size:0.75rem; color:var(--text-secondary); margin-top:0.3rem;">Queries <code>steps WHERE defender_reward &lt; 0</code> to find failure patterns</div>
-    </div>
-    <div class="card" style="text-align:center;">
-      <div style="font-size:2rem; margin-bottom:0.5rem;">🎯</div>
-      <div style="font-weight:600; font-size:0.9rem;">Target Exploits</div>
-      <div style="font-size:0.75rem; color:var(--text-secondary); margin-top:0.3rem;">Triples selection weight for strategies that historically fool the defender</div>
-    </div>
-    <div class="card" style="text-align:center;">
-      <div style="font-size:2rem; margin-bottom:0.5rem;">📈</div>
-      <div style="font-weight:600; font-size:0.9rem;">ELO Adaptation</div>
-      <div style="font-size:0.75rem; color:var(--text-secondary); margin-top:0.3rem;">Each strategy has an ELO rating that rises when it fools the defender</div>
-    </div>
+    <div class="card" style="text-align:center;"><div style="font-size:2rem; margin-bottom:0.5rem;">📖</div><div style="font-weight:600; font-size:0.9rem;">Read Weaknesses</div><div style="font-size:0.75rem; color:var(--text-secondary); margin-top:0.3rem;">Queries <code>steps WHERE defender_reward &lt; 0</code> to find failure patterns</div></div>
+    <div class="card" style="text-align:center;"><div style="font-size:2rem; margin-bottom:0.5rem;">🎯</div><div style="font-weight:600; font-size:0.9rem;">Target Exploits</div><div style="font-size:0.75rem; color:var(--text-secondary); margin-top:0.3rem;">Triples selection weight for strategies that historically fool the defender</div></div>
+    <div class="card" style="text-align:center;"><div style="font-size:2rem; margin-bottom:0.5rem;">📈</div><div style="font-weight:600; font-size:0.9rem;">ELO Adaptation</div><div style="font-size:0.75rem; color:var(--text-secondary); margin-top:0.3rem;">Each strategy has an ELO rating that rises when it fools the defender</div></div>
   </div>
 </section>
 
-<!-- ── Training Results ─────────────────────────────────────────────────── -->
+<!-- ── Training — Generate Plots ──────────────────────────────────────── -->
+<section class="section" id="training">
+  <div class="section-header reveal">
+    <div class="section-tag">Training Pipeline</div>
+    <h2 class="section-title">Generate Training Results</h2>
+    <p class="section-subtitle">Run a 50-episode simulation to generate performance comparison graphs</p>
+  </div>
+  <div class="reveal" style="text-align:center;">
+    <button class="demo-btn" id="train-btn" onclick="runTraining()" style="font-size:1rem; padding:0.8rem 2.5rem;">🚀 Generate Training Plots</button>
+    <div id="train-status" style="margin-top:1rem; font-size:0.85rem; color:var(--text-secondary);">Click to run 50-episode simulation and generate all graphs</div>
+  </div>
+</section>
+
+<!-- ── Training Results ───────────────────────────────────────────────── -->
 <section class="section" id="results">
   <div class="section-header reveal">
     <div class="section-tag">Training Analytics</div>
     <h2 class="section-title">Performance Graphs</h2>
     <p class="section-subtitle">50-episode training run: Base model vs LoRA fine-tuned Qwen 2.5 0.5B</p>
   </div>
-
   <div class="graph-grid">
     <div class="card graph-card graph-full reveal">
       <img src="/results/training_reward_progression.png" alt="Mean Defender Reward">
       <div class="graph-title">📈 Mean Defender Reward Progression</div>
-      <div class="graph-desc">Fine-tuned model (blue) climbs from 0.5 to ~0.85 while base model (gray) stays flat at ~0.45</div>
+      <div class="graph-desc">Fine-tuned model climbs from 0.5 to ~0.85 while base model stays flat at ~0.45</div>
     </div>
     <div class="card graph-card reveal">
       <img src="/results/training_attacker_win_rate.png" alt="Attacker Win Rate">
@@ -128,12 +109,12 @@
     <div class="card graph-card reveal">
       <img src="/results/training_difficulty_progression.png" alt="Difficulty Progression">
       <div class="graph-title">⬆️ Difficulty Progression</div>
-      <div class="graph-desc">Curriculum scales from level 2 to 10 as the defender proves mastery</div>
+      <div class="graph-desc">Curriculum scales from level 2 to 10 as defender proves mastery</div>
     </div>
     <div class="card graph-card reveal">
       <img src="/results/training_balance_progression.png" alt="Company Balance">
       <div class="graph-title">💰 Company Balance</div>
-      <div class="graph-desc">Financial balance recovers from $8K to $10K as model stops over-escalating</div>
+      <div class="graph-desc">Financial balance recovers from $8K to $10K</div>
     </div>
     <div class="card graph-card reveal">
       <img src="/results/training_sla_breaches.png" alt="SLA Breaches">
@@ -143,14 +124,13 @@
   </div>
 </section>
 
-<!-- ── Comparisons ──────────────────────────────────────────────────────── -->
+<!-- ── Comparisons ────────────────────────────────────────────────────── -->
 <section class="section" id="comparisons">
   <div class="section-header reveal">
     <div class="section-tag">Model Comparison</div>
     <h2 class="section-title">Base vs Fine-Tuned</h2>
     <p class="section-subtitle">LoRA fine-tuning on just 5 episodes of expert trajectories transforms performance</p>
   </div>
-
   <div class="comparison-grid reveal">
     <div class="card comparison-card">
       <div class="metric-name">Mean Reward</div>
@@ -183,117 +163,102 @@
   </div>
 </section>
 
-<!-- ── Attacker Strategies ──────────────────────────────────────────────── -->
+<!-- ── Attacker Strategies ────────────────────────────────────────────── -->
 <section class="section" id="strategies">
   <div class="section-header reveal">
     <div class="section-tag">Adversarial Engine</div>
     <h2 class="section-title">8 Deception Strategies</h2>
     <p class="section-subtitle">Each strategy has an ELO rating and targets specific defender weaknesses</p>
   </div>
-
   <div class="strategy-grid reveal">
-    <div class="strategy-card">
-      <div class="strategy-icon">🎭</div>
-      <div class="strategy-name">Priority Confusion</div>
-      <div class="strategy-desc">Makes low-priority tickets look urgent with misleading language</div>
-    </div>
-    <div class="strategy-card">
-      <div class="strategy-icon">🚨</div>
-      <div class="strategy-name">Fake Urgency</div>
-      <div class="strategy-desc">Injects "PRODUCTION DOWN" language into routine billing questions</div>
-    </div>
-    <div class="strategy-card">
-      <div class="strategy-icon">🔀</div>
-      <div class="strategy-name">Category Confusion</div>
-      <div class="strategy-desc">Cross-contaminates technical vocabulary into billing tickets</div>
-    </div>
-    <div class="strategy-card">
-      <div class="strategy-icon">📏</div>
-      <div class="strategy-name">Boundary Exploit</div>
-      <div class="strategy-desc">Tests exact policy edges — day 14 of a 14-day refund window</div>
-    </div>
-    <div class="strategy-card">
-      <div class="strategy-icon">😢</div>
-      <div class="strategy-name">Emotional Manipulation</div>
-      <div class="strategy-desc">Uses guilt and anger to force the defender into over-escalating</div>
-    </div>
-    <div class="strategy-card">
-      <div class="strategy-icon">📈</div>
-      <div class="strategy-name">Scope Creep</div>
-      <div class="strategy-desc">Starts as a simple question, then escalates to a critical issue mid-ticket</div>
-    </div>
-    <div class="strategy-card">
-      <div class="strategy-icon">🔐</div>
-      <div class="strategy-name">PII Injection</div>
-      <div class="strategy-desc">Embeds fake SSN/CC data to trigger compliance violations in responses</div>
-    </div>
-    <div class="strategy-card">
-      <div class="strategy-icon">⏰</div>
-      <div class="strategy-name">Shift Exploiter</div>
-      <div class="strategy-desc">Targets the exact moment a policy drift occurs to exploit rule gaps</div>
-    </div>
+    <div class="strategy-card"><div class="strategy-icon">🎭</div><div class="strategy-name">Priority Confusion</div><div class="strategy-desc">Makes low-priority tickets look urgent with misleading language</div></div>
+    <div class="strategy-card"><div class="strategy-icon">🚨</div><div class="strategy-name">Fake Urgency</div><div class="strategy-desc">Injects "PRODUCTION DOWN" language into routine billing questions</div></div>
+    <div class="strategy-card"><div class="strategy-icon">🔀</div><div class="strategy-name">Category Confusion</div><div class="strategy-desc">Cross-contaminates technical vocabulary into billing tickets</div></div>
+    <div class="strategy-card"><div class="strategy-icon">📏</div><div class="strategy-name">Boundary Exploit</div><div class="strategy-desc">Tests exact policy edges — day 14 of a 14-day refund window</div></div>
+    <div class="strategy-card"><div class="strategy-icon">😢</div><div class="strategy-name">Emotional Manipulation</div><div class="strategy-desc">Uses guilt and anger to force the defender into over-escalating</div></div>
+    <div class="strategy-card"><div class="strategy-icon">📈</div><div class="strategy-name">Scope Creep</div><div class="strategy-desc">Starts simple, then escalates to a critical issue mid-ticket</div></div>
+    <div class="strategy-card"><div class="strategy-icon">🔐</div><div class="strategy-name">PII Injection</div><div class="strategy-desc">Embeds fake SSN/CC data to trigger compliance violations</div></div>
+    <div class="strategy-card"><div class="strategy-icon">⏰</div><div class="strategy-name">Shift Exploiter</div><div class="strategy-desc">Targets the exact moment a policy drift occurs</div></div>
   </div>
 </section>
 
-<!-- ── Policy Drift Timeline ────────────────────────────────────────────── -->
+<!-- ── Policy Drift Timeline ──────────────────────────────────────────── -->
 <section class="section">
   <div class="section-header reveal">
     <div class="section-tag">Shifting Sands</div>
     <h2 class="section-title">Policy Drift Timeline</h2>
     <p class="section-subtitle">Rules change mid-episode — the agent must adapt on-the-fly</p>
   </div>
-
   <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:0.75rem;" class="reveal">
-    <div class="card" style="text-align:center; border-color:rgba(79,140,255,0.2);">
-      <div style="font-size:0.7rem; color:var(--accent-blue);">Step 3</div>
-      <div style="font-weight:700; font-size:0.85rem; margin:0.3rem 0;">v1 → v2</div>
-      <div style="font-size:0.65rem; color:var(--text-secondary);">Refund: 30→14 days<br>SLA Critical: 4→2h</div>
-    </div>
-    <div class="card" style="text-align:center; border-color:rgba(168,85,247,0.2);">
-      <div style="font-size:0.7rem; color:var(--accent-purple);">Step 5</div>
-      <div style="font-weight:700; font-size:0.85rem; margin:0.3rem 0;">v2 → v3</div>
-      <div style="font-size:0.65rem; color:var(--text-secondary);">+Security category<br>+Schema fields</div>
-    </div>
-    <div class="card" style="text-align:center; border-color:rgba(239,68,68,0.2);">
-      <div style="font-size:0.7rem; color:var(--accent-red);">Step 7</div>
-      <div style="font-weight:700; font-size:0.85rem; margin:0.3rem 0;">v3 → v4</div>
-      <div style="font-size:0.65rem; color:var(--text-secondary);">+PII redaction<br>Catastrophic failure</div>
-    </div>
-    <div class="card" style="text-align:center; border-color:rgba(245,158,11,0.2);">
-      <div style="font-size:0.7rem; color:var(--accent-orange);">Step 9</div>
-      <div style="font-weight:700; font-size:0.85rem; margin:0.3rem 0;">v4 → v5</div>
-      <div style="font-size:0.65rem; color:var(--text-secondary);">+Retention category<br>Tier-based SLA</div>
-    </div>
-    <div class="card" style="text-align:center; border-color:rgba(236,72,153,0.2);">
-      <div style="font-size:0.7rem; color:var(--accent-pink);">Step 11</div>
-      <div style="font-weight:700; font-size:0.85rem; margin:0.3rem 0;">v5 → v6</div>
-      <div style="font-size:0.65rem; color:var(--text-secondary);">Full lockdown<br>Queue limit: 2</div>
-    </div>
+    <div class="card" style="text-align:center; border-color:rgba(79,140,255,0.2);"><div style="font-size:0.7rem; color:var(--accent-blue);">Step 3</div><div style="font-weight:700; font-size:0.85rem; margin:0.3rem 0;">v1 → v2</div><div style="font-size:0.65rem; color:var(--text-secondary);">Refund: 30→14 days<br>SLA Critical: 4→2h</div></div>
+    <div class="card" style="text-align:center; border-color:rgba(168,85,247,0.2);"><div style="font-size:0.7rem; color:var(--accent-purple);">Step 5</div><div style="font-weight:700; font-size:0.85rem; margin:0.3rem 0;">v2 → v3</div><div style="font-size:0.65rem; color:var(--text-secondary);">+Security category<br>+Schema fields</div></div>
+    <div class="card" style="text-align:center; border-color:rgba(239,68,68,0.2);"><div style="font-size:0.7rem; color:var(--accent-red);">Step 7</div><div style="font-weight:700; font-size:0.85rem; margin:0.3rem 0;">v3 → v4</div><div style="font-size:0.65rem; color:var(--text-secondary);">+PII redaction<br>Catastrophic failure</div></div>
+    <div class="card" style="text-align:center; border-color:rgba(245,158,11,0.2);"><div style="font-size:0.7rem; color:var(--accent-orange);">Step 9</div><div style="font-weight:700; font-size:0.85rem; margin:0.3rem 0;">v4 → v5</div><div style="font-size:0.65rem; color:var(--text-secondary);">+Retention category<br>Tier-based SLA</div></div>
+    <div class="card" style="text-align:center; border-color:rgba(236,72,153,0.2);"><div style="font-size:0.7rem; color:var(--accent-pink);">Step 11</div><div style="font-weight:700; font-size:0.85rem; margin:0.3rem 0;">v5 → v6</div><div style="font-size:0.65rem; color:var(--text-secondary);">Full lockdown<br>Queue limit: 2</div></div>
   </div>
 </section>
 
-<!-- ── Live Demo ─────────────────────────────────────────────────────────── -->
+<!-- ── Live Demo ──────────────────────────────────────────────────────── -->
 <section class="section" id="demo">
   <div class="section-header reveal">
     <div class="section-tag">Interactive</div>
     <h2 class="section-title">Live API Demo</h2>
-    <p class="section-subtitle">Hit the environment's REST API in real-time</p>
+    <p class="section-subtitle">Hit the environment's REST API in real-time — single step or full episode</p>
   </div>
 
+  <!-- Single Step Demo -->
   <div class="demo-container reveal">
     <div class="card demo-panel">
       <div class="panel-title">📤 Request</div>
-      <button class="demo-btn" id="demo-btn" onclick="runDemo()">▶ Run Live Demo</button>
-      <div class="demo-output" id="demo-request">Click "Run Live Demo" to send a /reset + /step request</div>
+      <button class="demo-btn" id="demo-btn" onclick="runDemo()">▶ Run Single Step Demo</button>
+      <div class="demo-output" id="demo-request">Click to send a /reset + /step request to the live API</div>
     </div>
     <div class="card demo-panel">
       <div class="panel-title">📥 Response</div>
       <div class="demo-output" id="demo-response">Waiting for request...</div>
     </div>
   </div>
+
+  <!-- Full Episode Demo -->
+  <div style="margin-top:1.5rem;" class="reveal">
+    <div class="card" style="padding:1.5rem;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1rem;">
+        <div style="font-weight:600; font-size:0.95rem;">🎮 Full Episode Runner — 12 Steps with Adversarial Attacker</div>
+        <button class="demo-btn" id="full-demo-btn" onclick="runFullDemo()" style="margin:0;">▶ Run Full 12-Step Episode</button>
+      </div>
+      <div class="demo-output" id="full-demo-output" style="max-height:400px; font-family:'JetBrains Mono',monospace; font-size:0.75rem;">Click "Run Full 12-Step Episode" to watch a defender agent process 12 adversarial tickets in real-time with live scoring</div>
+    </div>
+  </div>
 </section>
 
-<!-- ── Tech Stack ────────────────────────────────────────────────────────── -->
+<!-- ── Live Metrics ───────────────────────────────────────────────────── -->
+<section class="section" id="metrics">
+  <div class="section-header reveal">
+    <div class="section-tag">Database Metrics</div>
+    <h2 class="section-title">Live Performance Data</h2>
+    <p class="section-subtitle">Real-time metrics pulled from gauntlet.db</p>
+  </div>
+  <div id="live-metrics-grid" style="display:grid; grid-template-columns:repeat(4,1fr); gap:1rem;" class="reveal">
+    <div class="card" style="text-align:center; padding:1.5rem;">
+      <div style="font-size:0.75rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:1px;">Total Episodes</div>
+      <div id="metric-episodes" style="font-size:2rem; font-weight:800; background:var(--gradient-hero); -webkit-background-clip:text; -webkit-text-fill-color:transparent; margin:0.5rem 0;">—</div>
+    </div>
+    <div class="card" style="text-align:center; padding:1.5rem;">
+      <div style="font-size:0.75rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:1px;">Avg Reward</div>
+      <div id="metric-reward" style="font-size:2rem; font-weight:800; color:var(--accent-cyan); margin:0.5rem 0;">—</div>
+    </div>
+    <div class="card" style="text-align:center; padding:1.5rem;">
+      <div style="font-size:0.75rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:1px;">Avg Balance</div>
+      <div id="metric-balance" style="font-size:2rem; font-weight:800; color:var(--accent-blue); margin:0.5rem 0;">—</div>
+    </div>
+    <div class="card" style="text-align:center; padding:1.5rem;">
+      <div style="font-size:0.75rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:1px;">Attacker Win Rate</div>
+      <div id="metric-awr" style="font-size:2rem; font-weight:800; color:var(--accent-red); margin:0.5rem 0;">—</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Tech Stack ─────────────────────────────────────────────────────── -->
 <section class="section">
   <div class="section-header reveal">
     <div class="section-tag">Built With</div>
@@ -312,17 +277,37 @@
   </div>
 </section>
 
-<!-- ── Footer ────────────────────────────────────────────────────────────── -->
+<!-- ── Footer ─────────────────────────────────────────────────────────── -->
 <footer class="footer">
   <p>Meta-OpenENV — Adversarial Self-Play Customer Support Triage</p>
-  <p style="margin-top:0.3rem;">Built for OpenEnv Hackathon 2026 • Subhakshay</p>
+  <p style="margin-top:0.3rem;">Built for OpenEnv Hackathon 2026 • <a href="https://huggingface.co/spaces/Subhakshay/support-triage-env" style="color:var(--accent-blue); text-decoration:none;">HuggingFace Space</a> • <a href="https://github.com/Subhakshay/Meta-OpenENV" style="color:var(--accent-blue); text-decoration:none;">GitHub</a></p>
 </footer>
 
-<!-- ── Graph Lightbox Modal ──────────────────────────────────────────────── -->
-<div class="modal-overlay" id="graph-modal">
-  <img id="modal-img" src="" alt="Full-size graph">
-</div>
+<!-- ── Graph Lightbox Modal ───────────────────────────────────────────── -->
+<div class="modal-overlay" id="graph-modal"><img id="modal-img" src="" alt="Full-size graph"></div>
 
 <script src="/static/script.js"></script>
+<script>
+// Fetch live metrics on load
+(async function loadMetrics() {
+  try {
+    const res = await fetch('/api/metrics');
+    const data = await res.json();
+    if (data.has_data) {
+      document.getElementById('metric-episodes').textContent = data.total_episodes;
+      document.getElementById('metric-reward').textContent = data.avg_reward.toFixed(3);
+      document.getElementById('metric-balance').textContent = '$' + data.avg_balance.toLocaleString();
+      document.getElementById('metric-awr').textContent = (data.avg_attacker_win_rate * 100).toFixed(1) + '%';
+    } else {
+      document.getElementById('metric-episodes').textContent = '0';
+      document.getElementById('metric-reward').textContent = 'No data';
+      document.getElementById('metric-balance').textContent = '—';
+      document.getElementById('metric-awr').textContent = '—';
+    }
+  } catch (e) {
+    console.error('Failed to load metrics:', e);
+  }
+})();
+</script>
 </body>
 </html>

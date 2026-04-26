@@ -130,6 +130,48 @@ async def template_leaderboard():
 def health():
     return {"status": "ok", "openenv_version": "2.0.0", "active_sessions": len(SESSIONS)}
 
+@app.post("/generate_plots", tags=["Analytics"])
+async def generate_plots():
+    """Run the training plot generation script and return status."""
+    import subprocess
+    start = time.time()
+    try:
+        result = subprocess.run(
+            ["python", os.path.join(_BASE_DIR, "generate_training_plots.py")],
+            capture_output=True, text=True, timeout=30, cwd=_BASE_DIR,
+        )
+        duration_ms = int((time.time() - start) * 1000)
+        if result.returncode == 0:
+            plots = [f for f in os.listdir(os.path.join(_BASE_DIR, "results")) if f.endswith(".png")]
+            return {"status": "ok", "plots_generated": len(plots), "duration_ms": duration_ms, "plots": plots}
+        return {"status": "error", "error": result.stderr[:500], "duration_ms": duration_ms}
+    except Exception as e:
+        return {"status": "error", "error": str(e), "duration_ms": int((time.time() - start) * 1000)}
+
+@app.get("/api/metrics", tags=["Analytics"])
+async def get_metrics():
+    """Return live metrics from the database for dashboard display."""
+    try:
+        episodes = await db.get_episodes(limit=50, closed_only=True)
+        if not episodes:
+            return {"has_data": False}
+        rewards = [e.get("mean_defender_reward", 0) or 0 for e in episodes]
+        balances = [e.get("final_balance", 10000) or 10000 for e in episodes]
+        sla = [e.get("sla_breaches", 0) or 0 for e in episodes]
+        awr = [e.get("attacker_win_rate_final", 0.5) or 0.5 for e in episodes]
+        return {
+            "has_data": True,
+            "total_episodes": len(episodes),
+            "avg_reward": round(sum(rewards) / len(rewards), 3),
+            "avg_balance": round(sum(balances) / len(balances), 0),
+            "avg_sla_breaches": round(sum(sla) / len(sla), 1),
+            "avg_attacker_win_rate": round(sum(awr) / len(awr), 3),
+            "best_reward": round(max(rewards), 3),
+            "worst_reward": round(min(rewards), 3),
+        }
+    except Exception:
+        return {"has_data": False}
+
 @app.get("/", tags=["Meta"])
 def root():
     dashboard = os.path.join(_BASE_DIR, "static", "index.html")
