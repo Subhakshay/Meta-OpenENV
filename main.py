@@ -6,6 +6,8 @@ import asyncio, logging, os, time
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from environment import GauntletEnv, ShiftingSandsEnv
 from attacker import AttackerAgent
@@ -26,6 +28,13 @@ app = FastAPI(
     description="Adversarial template-based SaaS support environment with policy drift.",
     lifespan=lifespan,
 )
+
+# Serve static files (dashboard CSS/JS) and result images
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if os.path.isdir(os.path.join(_BASE_DIR, "static")):
+    app.mount("/static", StaticFiles(directory=os.path.join(_BASE_DIR, "static")), name="static")
+if os.path.isdir(os.path.join(_BASE_DIR, "results")):
+    app.mount("/results", StaticFiles(directory=os.path.join(_BASE_DIR, "results")), name="results")
 
 SESSIONS: Dict[str, Dict[str, Any]] = {}
 
@@ -123,6 +132,9 @@ def health():
 
 @app.get("/", tags=["Meta"])
 def root():
+    dashboard = os.path.join(_BASE_DIR, "static", "index.html")
+    if os.path.isfile(dashboard):
+        return FileResponse(dashboard)
     return {"name": "The Gauntlet + Shifting Sands", "version": "2.0.0", "docs": "/docs"}
 
 if __name__ == "__main__":
