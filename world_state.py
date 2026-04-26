@@ -121,18 +121,37 @@ class WorldState:
             return
 
         rate = self.attacker_win_rate_50
-        if rate > 0.75:
-            # Attacker dominating → make it easier for defender
-            self.difficulty_level = max(0.0, self.difficulty_level - 0.02)
-        elif 0.60 <= rate <= 0.75:
-            # Balanced-ish → hold steady
-            pass
-        elif 0.40 <= rate < 0.60:
-            # Defender doing well → increase difficulty slightly
-            self.difficulty_level = min(1.0, self.difficulty_level + 0.01)
-        else:  # < 0.40
-            # Defender dominating → ramp up difficulty
-            self.difficulty_level = min(1.0, self.difficulty_level + 0.02)
+        # Proportional controller around target attacker win-rate.
+        # Keeps difficulty responsive without saturating at 0/1 too quickly.
+        target_rate = 0.50
+        error = rate - target_rate
+        if abs(error) < 0.03:
+            step = 0.0
+        else:
+            step = -0.03 * error
+            step = max(-0.01, min(0.01, step))
+
+        # Keep adversarial curriculum in a usable band; avoiding saturation helps
+        # prevent invalid-output spirals in both attacker and defender behaviors.
+        self.difficulty_level = max(0.15, min(0.85, self.difficulty_level + step))
+
+    @classmethod
+    def from_export(cls, d: Dict[str, Any]) -> "WorldState":
+        """
+        Rebuild a working WorldState from to_export_dict() output (for offline
+        reward grading). Internal fields like _recent_attacker_results are
+        re-initialised; scalars like difficulty_level and attacker_win_rate_50
+        are restored from the export when present.
+        """
+        ws = cls()
+        for key, value in d.items():
+            if key.startswith("_") or not hasattr(ws, key):
+                continue
+            try:
+                setattr(ws, key, value)
+            except (AttributeError, TypeError):
+                continue
+        return ws
 
     # ── Export ────────────────────────────────────────────────────────────────
 

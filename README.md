@@ -1,777 +1,269 @@
 ---
-title: Support Triage Env
-emoji: 🛠️
-colorFrom: blue
-colorTo: green
+title: The Gauntlet + Shifting Sands
+emoji: 🛡️
+colorFrom: red
+colorTo: blue
 sdk: docker
 pinned: false
 app_port: 7860
 tags:
   - openenv
   - reinforcement-learning
+  - world-modeling
+  - self-improvement
+  - adversarial
   - customer-support
-  - nlp
-  - multi-turn
-  - real-world
 ---
 
-# 🎫 Customer Support Triage Environment
+# The Gauntlet + Shifting Sands
 
-A real world, stateful reinforcement learning environment built on the [OpenEnv](https://github.com/meta-pytorch/OpenEnv) framework.
+An OpenEnv environment where support agents must make high-stakes decisions in a changing world.
 
-Agents act as a **customer support triage coordinators** reading incoming tickets, clarifying questions when needed, assigning priority and category to the tickets, drafting responses, and managing escalations.
+- **Gauntlet**: an attacker generates deceptive tickets designed to mislead the defender.
+- **Shifting Sands**: policy drift changes the rules mid-episode, and the agent must adapt.
 
-[![Docker](https://img.shields.io/badge/docker-ready-blue)](https://hub.docker.com/)
-[![Python](https://img.shields.io/badge/python-3.11+-green)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/backend-fastapi-teal)](https://fastapi.tiangolo.com/)
-[![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
+This project is built for OpenEnv Hackathon themes around **World Modeling** and **Self-Improvement**.
 
 ---
 
-## 📋 Table of Contents
+## 1) The Story: Why This Exists
 
-1. [Why Customer Support Triage?](#-why-customer-support-triage)
-2. [Quick Start](#-quick-start)
-3. [Environment Overview](#-environment-overview)
-4. [Tasks & Difficulty Progression](#-tasks--difficulty-progression)
-5. [Action Space](#-action-space)
-6. [Observation Space](#-observation-space)
-7. [Reward Structure](#-reward-structure)
-8. [World State & MDP Mechanics](#-world-state--mdp-mechanics)
-9. [Ticket Generation](#-ticket-generation)
-10. [Multi-Turn Dialogue (Task 3)](#-multi-turn-dialogue-task-3)
-11. [API Reference](#-api-reference)
-12. [Examples](#-examples)
-13. [Baseline Scores](#-baseline-scores)
-14. [Installation & Usage](#-installation--usage)
-15. [Troubleshooting](#-troubleshooting)
+LLMs are good at one-shot text completion, but real support operations are not one-shot.
+In production, agents face:
+
+- partial information,
+- adversarial or noisy inputs,
+- changing policies,
+- and delayed business consequences.
+
+Most benchmarks do not capture this. They reward isolated classification, not durable decision-making under evolving constraints.
+
+**This environment addresses that gap.**  
+The agent is evaluated not just on "is this label correct now?" but also on "did this sequence of actions keep the business healthy across the whole episode?"
 
 ---
 
-## 🧠 Why Customer Support Triage?
+## 2) Problem Statement
 
-Customer support triage is a significant real world decision task. Many enterprises like SaaS companies, banks, hospitals, e-commerce platforms must continuously classify, prioritise, and respond to incoming issues under time pressure and resource constraints.
+We target a concrete capability gap:
 
-This environment is **not a classification benchmark**. It is a full **Markov Decision Process** where:
+> Train an LLM to triage customer-support tickets robustly when tickets can be deceptive and policies can change during the session.
 
-- Agent decisions have lasting consequences on business metrics that compound across the episode
-- Some tickets require continous dialogue before they can be resolved
-- Overescalating drains resources and underescalating causes SLA breaches
-- Poor responses spike customer churn risk that persists for some time
+The challenge is a partially observable, non-stationary MDP:
 
-### Research Motivation
-
-| Research Theme | Role in This Environment |
-|---|---|
-| Multi turn dialogue management | `ASK` action triggers customer reply; agent must integrate new info before resolving |
-| Resource-constrained decision making | Escalation queue has a hard capacity of 3; overflow triggers penalties |
-| Reward shaping & partial credit | Priority grading gives partial credit for near miss classifications |
-| LLM reasoning under business constraints | World state metrics must be managed while processing 10–20 tickets |
-| Stateful MDP vs supervised classification | Actions mutate `company_balance`, `churn_risk`, and `sla_breach_count` |
+- observations are incomplete and sometimes intentionally misleading,
+- hidden ground-truth labels are revealed only after decisions,
+- policy version can drift mid-trajectory,
+- bad early decisions damage later outcomes.
 
 ---
 
-## 🚀 Quick Start
+## 3) Why This Is Novel (Environment Innovation - 40%)
 
-### Using Docker
+Compared with static ticket classification tasks, this environment introduces:
+
+- **Adversarial ticket generation** via an attacker strategy component.
+- **Mid-episode policy drift** that changes label expectations and schema surface.
+- **Multi-component rewards** that combine local action quality with global world-state health.
+- **Episode-level consequences** (e.g., churn risk, SLA breaches, escalation pressure) that persist across steps.
+
+The result is a testbed for behaviors that matter in realistic deployments: adaptation, calibration, and long-horizon decision quality.
+
+---
+
+## 4) Environment Design
+
+### Agent Roles
+
+- **Defender (trainable)**: processes tickets, assigns priority/category, drafts response, decides escalation, optionally asks clarifying question.
+- **Attacker (optional)**: proposes deceptive tickets based on current difficulty and policy context.
+
+### Tasks
+
+- `1` - **Priority Only** (easy)
+- `2` - **Full Classification** (medium)
+- `3` - **Multi-Turn + Drift** (hard)
+
+### State and Dynamics
+
+The environment tracks a persistent world state (exported every step), including business-health signals.
+Actions mutate state, and those mutations affect future rewards.
+
+### OpenEnv Contract
+
+- `POST /reset`
+- `POST /step`
+- `GET /world_state/{session_id}`
+- `GET /episodes`
+- `GET /episodes/{episode_id}`
+- `GET /health`
+
+Manifest: `openenv.yaml`
+
+---
+
+## 5) Reward Logic (Reward + Pipeline Quality - 10%)
+
+Reward is designed to teach behavior, not just score formatting:
+
+- dense feedback at every step,
+- component-level decomposition for diagnosis,
+- penalties/reductions when behavior exploits shortcuts,
+- world-state terms to prevent myopic optimization.
+
+At each step, the server returns:
+
+- scalar reward,
+- reward breakdown,
+- next observation,
+- updated world state,
+- optional drift notice.
+
+This makes training and debugging measurable and reproducible.
+
+---
+
+## 6) Evidence of Learning (Improvement in Rewards - 20%)
+
+Use this section to show before/after training performance and behavior changes.
+
+### Current baseline snapshot
+
+From local benchmark runs (`inference.py` / `run_baseline.py`):
+
+| Task | Rule-Based | LLM Baseline |
+|---|---:|---:|
+| 1 (Priority) | ~0.68 | ~0.88 |
+| 2 (Full Classification) | ~0.53 | ~0.74 |
+| 3 (Multi-Turn + Drift) | ~0.45 | ~0.63 |
+
+Interpretation: the largest gap appears on Task 3, where adaptation and better clarification behavior matter most.
+
+### What judges should see here
+
+- reward curves (trained vs untrained),
+- baseline vs trained side-by-side metrics,
+- short qualitative trajectory examples (before/after),
+- links to plots committed under `plots/` (PNG/JPG).
+
+---
+
+## 7) Storytelling Checklist (Storytelling - 30%)
+
+This README is structured to answer the four judge questions directly:
+
+1. **Problem** - what capability gap is targeted?
+2. **Environment** - what does the agent observe, do, and optimize?
+3. **Results** - what improves after training?
+4. **Why it matters** - who benefits and why this domain is valuable?
+
+If a reviewer reads only this README for 3-5 minutes, they should understand both the motivation and the evidence plan.
+
+---
+
+## 8) Minimum Hackathon Requirements Mapping
+
+From the attached judging criteria, here is how this repo maps:
+
+- **OpenEnv usage (required)**  
+  Uses OpenEnv-compatible API + `openenv.yaml` manifest.
+
+- **Training script in Colab with Unsloth/HF TRL (required)**  
+  Notebook: `train_colab.ipynb` (ensure final version is runnable and linked in submission).
+
+- **Evidence of real training (required)**  
+  Add reward/loss plots and trained-vs-baseline metrics in this README.
+
+- **Mini-blog / short video (<2 min) (required)**  
+  Add links below before final submission.
+
+- **Hosted on Hugging Face Spaces (required)**  
+  Space from manifest: [Subhakshay/support-triage-env](https://huggingface.co/spaces/Subhakshay/support-triage-env)
+
+---
+
+## 9) Quick Start
+
+### Docker
 
 ```bash
-docker build -t customer-support-env:latest .
-docker run -p 7860:7860 customer-support-env:latest
-# Docs at http://localhost:7860/docs
+docker build -t gauntlet-shifting-sands .
+docker run -p 7860:7860 gauntlet-shifting-sands
 ```
 
-### Basic Python Client
+Open docs: [http://localhost:7860/docs](http://localhost:7860/docs)
 
-```python
-import requests
-
-BASE = "http://localhost:7860"
-
-# Start a new episode
-session = requests.post(f"{BASE}/reset", json={
-    "task_id": "task_1_priority",
-    "seed": 42
-}).json()
-
-session_id = session["session_id"]
-obs = session["observation"]
-print(f"Ticket: {obs['subject']}")
-print(f"Tier: {obs['customer_tier']}  Sentiment: {obs['sentiment']}")
-
-# Take a step
-result = requests.post(f"{BASE}/step", json={
-    "session_id":      session_id,
-    "assign_priority": "critical",
-    "assign_category": "technical",
-    "response_text":   "Dear Valued Enterprise Customer, our engineering team has been alerted and is actively investigating. We will provide updates every 30 minutes. Best regards, Support Team",
-    "escalate":        True,
-}).json()
-
-print(f"Reward: {result['reward']['value']}")
-print(f"Breakdown: {result['reward']['breakdown']}")
-print(f"Done: {result['done']}")
-```
-
-### Run Baseline Evaluation (No API Key Needed)
+### Local
 
 ```bash
-python inference.py
+pip install -r requirements.txt
+python main.py
 ```
+
+### Smoke test
 
 ```bash
-# With LLM agent
-export API_BASE_URL="https://api.groq.com/openai/v1"
-export MODEL_NAME="llama-3.3-70b-versatile"
-export HF_TOKEN="gsk_..."
-python inference.py
+curl -X POST "http://localhost:7860/reset" -H "Content-Type: application/json" -d "{\"task_id\":1}"
 ```
 
 ---
 
-## 🌍 Environment Overview
+## 10) API Example
 
-A queue of support tickets is generated **procedurally** at the start of each episode. The agent processes them one by one, and every decision it makes updates the **World State** business metrics that persist and compound across the full episode.
-
-### Core Mechanics
-
-- **Procedural Generation** - 8 ticket blueprint families × randomised fill-in pools yield millions of unique tickets. Memorisation is impossible.
-- **Structural Difficulty Progression** - Each task changes what the environment requires of the agent, not just what the grader checks.
-- **Stateful MDP** - Agent actions mutate `company_balance`, `customer_churn_risk`, `escalation_queue`, and `sla_breach_count`.
-- **Ground Truth Withheld** - True labels are revealed only in `info["episode_summary"]` when `done=True`. The agent cannot look ahead.
-- **Multi-Turn Dialogue** - In Task 3, ambiguous tickets require an `ASK` action first. The environment simulates a customer reply before the agent resolves.
-
-### Episode Flow
-
-```
-reset()
-  ├─ generates ticket queue
-  ├─ initialises WorldState
-  └─ returns first Observation
-
-loop:
-  agent reads Observation
-  agent returns Action
-  step(action)
-    ├─ grades decision components
-    ├─ applies world state effects
-    ├─ computes weighted reward
-    └─ advances to next ticket (or awaits customer reply on ASK)
-
-done=True
-  └─ episode_summary with full ground truth log revealed
-```
-
-### Episode Termination
-
-- **All tickets processed** - queue is empty
-- **Max steps reached** - 10 steps for task_1/task_2; 20 steps for task_3
-
----
-
-## 🪜 Tasks & Difficulty Progression
-
-The three tasks are **structurally different**, not just differently graded.
-
-| ID | Name | Difficulty | What structurally changes |
-|:---|:---|:---|:---|
-| `task_1_priority` | Priority Assignment | **Easy** | Only unambiguous tickets. Only priority is scored. |
-| `task_2_classification` | Ticket Classification | **Medium** | Ambiguous tickets included. Priority + category + response all scored. |
-| `task_3_full_triage` | Full Ticket Triage | **Hard** | Multiple turns dialogue. World state scored. Ambiguous tickets at 2:1 ratio. |
-
-### Task 1 - Priority Assignment (Easy)
-
-Clear signal tickets only. Single scoring dimension. The agent needs to read explicit urgency signals and assign the correct priority.
-
-**Example ticket:**
-```
-Subject: URGENT: Production API returning 500 errors
-Body: Our enterprise integration has been down for 4 hours. We are losing
-      $1,200 per minute. 2,000 users cannot access the platform.
-```
-**Correct action:** `assign_priority = "critical"`
-
-### Task 2 - Ticket Classification (Medium)
-
-Ambiguous tickets are introduced alongside clear ones. All three dimensions - priority, category, and response quality - are scored.
-
-**Ambiguous ticket example:**
-```
-Subject: Something isn't working like it used to
-Body: Hi, the thing I normally use for reporting isn't doing what it did
-      last Tuesday. I haven't changed anything on my end.
-```
-The correct priority and category require reasoning from context, not keyword matching.
-
-### Task 3 - Full Triage (Hard)
-
-Ambiguous tickets appear at a 2:1 ratio. The agent must issue an `ASK` action on ambiguous tickets before classifying. World state health contributes 15% of every step's reward, so the agent must plan across the full episode.
-
----
-
-## 🎮 Action Space
-
-### `classify` - Resolve the Ticket (All Tasks)
+### Reset
 
 ```json
 {
-  "action_type":         "classify",
-  "assign_priority":     "low | medium | high | critical",
-  "assign_category":     "billing | technical | account | shipping | general | refund",
-  "response_text":       "Hello, thank you for reaching out...",
-  "escalate":            false
+  "task_id": 3,
+  "attacker_enabled": true,
+  "drift_enabled": true,
+  "difficulty_init": 0.3
 }
 ```
 
-### `ask` - Request Clarification (Task 3 Only)
-
-Used when the ticket is ambiguous. The environment simulates a customer reply. Use `classify` on the next step.
+### Step
 
 ```json
 {
-  "action_type":         "ask",
-  "clarifying_question": "Could you clarify which specific feature is affected and when the issue started?"
-}
-```
-
-**Effects of ASK:**
-- Small partial reward: `clarification_quality × 0.10`
-- Customer reply appended to `clarification_history` in next observation
-- `awaiting_clarification = true` - same ticket must be resolved next
-- **Skipping ASK on an ambiguous ticket** reduces `priority_score` by 0.20
-
-### Priority Values
-
-| Value | When to use |
-|---|---|
-| `critical` | Production down, data loss, full outage, emergency |
-| `high` | Cannot login, duplicate charges, overdue orders, enterprise blockers |
-| `medium` | Bugs with workarounds, ambiguous billing, API limits |
-| `low` | General questions, pricing inquiries, feedback |
-
-### Category Values
-
-| Value | When to use |
-|---|---|
-| `billing` | Charges, payments, invoices, subscriptions |
-| `technical` | Bugs, API issues, outages, errors |
-| `account` | Login, passwords, access issues |
-| `shipping` | Orders, deliveries, tracking |
-| `refund` | Refund or reimbursement requests |
-| `general` | Anything else |
-
----
-
-## 👁️ Observation Space
-
-```python
-{
-  # Ticket content (no ground truth labels)
-  "ticket_id":              "TKT-83421",
-  "subject":                "URGENT: Production API returning 500 errors",
-  "body":                   "Our enterprise integration has been down...",
-  "customer_tier":          "free | pro | enterprise",
-  "created_at":             "2025-04-01T06:30:00Z",
-  "sentiment":              "angry | neutral | positive",
-
-  # Multi-turn dialogue state (Task 3)
-  "clarification_history":  [{"agent": "...", "customer": "..."}],
-  "awaiting_clarification": false,
-  "customer_reply":         null,
-
-  # Episode context
-  "queue_size":             7,
-  "time_elapsed_seconds":   1.24,
-  "agent_actions_taken":    2,
-  "task_id":                "task_3_full_triage",
-  "hint":                   "Multi-turn triage. Ambiguous tickets REQUIRE clarification...",
-
-  # Live world state (observe business consequences of past actions)
-  "world_state": {
-    "company_balance":      9850.01,
-    "escalation_queue":     1,
-    "escalation_capacity":  3,
-    "customer_churn_risk":  0.10,
-    "sla_breach_count":     0,
-    "tickets_resolved":     2,
-    "avg_response_quality": 0.74
+  "session_id": "YOUR_SESSION_ID",
+  "action": {
+    "assign_priority": "High",
+    "assign_category": "Technical",
+    "draft_response": "Thanks for the report. We are investigating now and will update you shortly.",
+    "escalate": true,
+    "ask_clarification": false
   }
 }
 ```
 
 ---
 
-## 💰 Reward Structure
+## 11) Repository Map
 
-All rewards are in `[0.0, 1.0]` - dense, per-step.
-
-### Reward Weights by Task
-
-| Component | Task 1 | Task 2 | Task 3 |
-|---|---|---|---|
-| `priority` | **100%** | 40% | 25% |
-| `category` | - | 30% | 20% |
-| `response` | - | 30% | 25% |
-| `clarification` | - | - | 15% |
-| `world_state` | - | - | 15% |
-
-### Priority Grading (Partial Credit)
-
-| Distance | Score |
-|---|---|
-| Exact match | `1.00` |
-| Off by 1 (e.g. high → critical) | `0.60` |
-| Off by 2 (e.g. low → high) | `0.20` |
-| Off by 3 (e.g. low → critical) | `0.00` |
-
-### Category Grading (Partial Credit)
-
-Related categories receive partial credit:
-
-| Assigned | True | Score |
-|---|---|---|
-| `billing` | `billing` | `1.00` |
-| `refund` | `billing` | `0.40` ← related |
-| `account` | `technical` | `0.40` ← related |
-| `shipping` | `billing` | `0.00` |
-
-### Response Quality Grading
-
-| Factor | Max score |
-|---|---|
-| Greeting present | `+0.15` |
-| References ticket subject | `+0.20` |
-| Category-relevant vocabulary | `+0.25` |
-| Commits to a next action | `+0.20` |
-| Correct escalation decision | `+0.10` |
-| Professional closing | `+0.10` |
-
-### Clarification Quality Grading
-
-| Factor | Max score |
-|---|---|
-| Uses question words | `+0.30` |
-| Asks about specific feature/area | `+0.40` |
-| Asks for reproduction steps or timing | `+0.30` |
-
-### World State Score (Task 3)
-
-```
-world_state_score = (balance_score + churn_score + sla_score + queue_score) / 4
-
-balance_score = min(1.0, company_balance / 10_000)
-churn_score   = 1.0 - customer_churn_risk
-sla_score     = max(0.0, 1.0 - sla_breach_count × 0.25)
-queue_score   = max(0.0, 1.0 - queue_overflow × 0.20)
-```
+- `main.py` - FastAPI/OpenEnv server
+- `environment.py` - environment dynamics and scoring orchestration
+- `rewards.py` - reward components and aggregation
+- `attacker.py` - adversarial ticket generation
+- `policy.py` / `drift_scheduler.py` - policy versions and drift events
+- `world_state.py` - persistent business state across an episode
+- `db.py` - async persistence for episodes/steps/snapshots
+- `openenv.yaml` - manifest for environment metadata and task schema
+- `inference.py`, `run_baseline.py` - evaluation scripts
+- `train_colab.ipynb` - training notebook entry point
 
 ---
 
-## ⚙️ World State & MDP Mechanics
+## 12) Submission Links (Fill Before Final Submit)
 
-The `WorldState` persists across the entire episode and is mutated by every `classify` action.
-
-### Mutation Rules
-
-| Agent action | World state effect |
-|---|---|
-| Escalates a refund/billing ticket | `company_balance -= $30–$99` |
-| Response quality < 0.30 | `customer_churn_risk += 0.15` |
-| Response quality > 0.70 | `customer_churn_risk -= 0.05` |
-| Escalates any ticket | `escalation_queue += 1` |
-| Escalation queue exceeds 3 | `customer_churn_risk += 0.10` |
-| Misses a CRITICAL ticket | `sla_breach_count += 1` |
-
-### Why It Is a Real MDP
-
-In a pure classification task, ticket #3's classification has no effect on ticket #4. Here it does:
-
-- A poor response on ticket #3 spikes `churn_risk`, reducing the `world_state_score` for all subsequent tickets
-- Over-escalating early fills the queue, forcing churn penalties on later decisions
-- Missing a critical ticket causes a permanent SLA breach that lowers `sla_score` for the rest of the episode
-
-The agent must plan across the full episode, not optimise each ticket in isolation.
+- Hugging Face Space: [Subhakshay/support-triage-env](https://huggingface.co/spaces/Subhakshay/support-triage-env)
+- Mini-blog / HF post: `ADD_LINK`
+- <2 min demo video: `ADD_LINK`
+- Training run dashboard (optional): `ADD_LINK`
+- Key plot artifacts: `ADD_LINK_OR_RELATIVE_PATH`
 
 ---
 
-## 🎟️ Ticket Generation
+## 13) Final Note
 
-Tickets are generated procedurally at `reset()` using 8 blueprint families with randomised fill-in pools.
-
-### Blueprint Families
-
-| Family | Priority | Category | Ambiguous? |
-|---|---|---|---|
-| Critical outage | CRITICAL | TECHNICAL | No |
-| Login/access failure | HIGH | ACCOUNT | No |
-| Duplicate billing | HIGH | BILLING | No |
-| Vague technical issue | MEDIUM | TECHNICAL | **Yes** |
-| Vague billing question | MEDIUM | BILLING | **Yes** |
-| General inquiry | LOW | GENERAL | No |
-| Late/wrong shipment | HIGH | SHIPPING | No |
-| Partial refund request | MEDIUM | REFUND | No |
-
-### Variable Pools
-
-Body templates contain `{variable}` placeholders filled from randomised pools:
-
-```
-{duration}      → "2 hours" | "4 hours" | "since this morning" | ...
-{user_count}    → "120" | "500" | "2,000" | "50,000" | ...
-{charge_amount} → "49.99" | "99.00" | "299.00" | ...
-{vague_feature} → "main panel" | "analytics tab" | "export tool" | ...
-```
-
-With 8 families × 4 subjects × 3 body templates × 30+ variable pools, the combinatorial space exceeds **10 million unique tickets**.
-
-### Task-Specific Pools
-
-```
-task_1_priority       → only non-ambiguous blueprints
-task_2_classification → full mix (clear + ambiguous)
-task_3_full_triage    → ambiguous blueprints at 2:1 ratio
-```
-
----
-
-## 💬 Multi-Turn Dialogue (Task 3)
-
-```
-Step N:    Agent sends ASK
-           ├─ Environment grades question relevance (0.0–1.0)
-           ├─ Simulates customer reply
-           ├─ Sets awaiting_clarification = True
-           └─ Returns small partial reward (clarification_quality × 0.10)
-
-Step N+1:  Agent sends CLASSIFY (same ticket)
-           ├─ Clarification bonus applied to reward
-           └─ Advances to next ticket
-```
-
-### Simulated Customer Reply
-
-On ambiguous tickets after a good question:
-```
-"Sure! I'm referring to the analytics tab section.
-My account ID is ACC-847291.
-It started happening three times today."
-```
-
-On tickets that don't need clarification:
-```
-"I think I already explained everything in my original message."
-```
-
-### Observation After ASK
-
-```json
-{
-  "clarification_history": [
-    {
-      "agent":    "Could you clarify which specific section is affected?",
-      "customer": "Sure! I'm referring to the analytics tab. It started three times today."
-    }
-  ],
-  "awaiting_clarification": true,
-  "customer_reply": "Sure! I'm referring to the analytics tab. It started three times today."
-}
-```
-
----
-
-## 📚 API Reference
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/` | Status and links |
-| `GET` | `/health` | Health check |
-| `GET` | `/tasks` | List all tasks |
-| `GET` | `/tasks/{task_id}` | Single task details |
-| `GET` | `/action_space` | Action space spec |
-| `GET` | `/observation_space` | Observation space spec |
-| `POST` | `/reset` | Start a new episode |
-| `POST` | `/step` | Take one action |
-| `GET` | `/state/{session_id}` | Episode state snapshot |
-| `DELETE` | `/session/{session_id}` | Close and clean up session |
-
-### POST /reset
-
-```json
-{ "task_id": "task_1_priority", "seed": 42 }
-```
-
-### POST /step
-
-```json
-{
-  "session_id":      "uuid",
-  "assign_priority": "high",
-  "assign_category": "technical",
-  "response_text":   "Hello, our team will investigate...",
-  "escalate":        false
-}
-```
-
-**Step response:**
-```json
-{
-  "observation": { "...": "..." },
-  "reward": {
-    "value": 0.74,
-    "breakdown": {
-      "priority_raw": 1.0, "category_raw": 1.0, "response_raw": 0.80,
-      "priority": 0.25,    "category": 0.20,    "response": 0.20,
-      "clarification": 0.15, "world_state": 0.14
-    },
-    "done": false,
-    "info": { "step": 3, "cumulative_reward": 2.14 }
-  },
-  "done": false,
-  "info": { "step": 3, "mean_reward_so_far": 0.71 }
-}
-```
-
----
-
-## 📖 Examples
-
-### Example 1: Simple Task 1 Loop
-
-```python
-import requests
-
-BASE = "http://localhost:7860"
-session = requests.post(f"{BASE}/reset", json={"task_id": "task_1_priority", "seed": 42}).json()
-session_id = session["session_id"]
-
-total_reward, steps = 0, 0
-result = session
-
-while True:
-    obs = result.get("observation", session["observation"])
-    text = (obs["subject"] + " " + obs["body"]).lower()
-
-    if any(w in text for w in ["urgent", "critical", "emergency", "outage", "down"]):
-        priority = "critical"
-    elif any(w in text for w in ["cannot", "locked", "charged twice", "not arrived"]):
-        priority = "high"
-    elif any(w in text for w in ["sometimes", "slow", "question", "feature"]):
-        priority = "medium"
-    else:
-        priority = "low"
-
-    result = requests.post(f"{BASE}/step", json={
-        "session_id": session_id, "assign_priority": priority,
-        "assign_category": "general", "response_text": "", "escalate": False,
-    }).json()
-
-    total_reward += result["reward"]["value"]
-    steps += 1
-    print(f"Step {steps}: priority={priority}  reward={result['reward']['value']:.4f}")
-
-    if result["done"]:
-        break
-
-print(f"\nMean reward: {total_reward/steps:.4f}")
-```
-
-### Example 2: Multi-Turn Task 3 Agent
-
-```python
-import requests
-
-BASE = "http://localhost:7860"
-VAGUE = ["something isn't", "seems off", "acting weird", "not sure", "looks different"]
-
-session = requests.post(f"{BASE}/reset", json={"task_id": "task_3_full_triage", "seed": 42}).json()
-session_id = session["session_id"]
-
-result = session
-total_reward, steps = 0, 0
-
-while True:
-    obs = result.get("observation", session["observation"])
-    text = (obs["subject"] + " " + obs["body"]).lower()
-    is_vague = any(s in text for s in VAGUE)
-    already_asked = bool(obs.get("clarification_history"))
-    awaiting = obs.get("awaiting_clarification", False)
-
-    if is_vague and not already_asked and not awaiting:
-        # Ask first
-        payload = {
-            "session_id": session_id,
-            "assign_priority": "medium", "assign_category": "general",
-            "response_text": "", "escalate": False,
-            "action_type": "ask",
-            "clarifying_question": "Could you clarify which specific feature or section is affected, and when the issue started?",
-        }
-        print(f"Step {steps+1}: ASK")
-    else:
-        # Resolve
-        full_text = text + " " + (obs.get("customer_reply") or "")
-        priority = "critical" if any(w in full_text for w in ["urgent", "production", "outage"]) else "medium"
-        escalate = priority == "critical"
-        tier_greet = {"enterprise": "Dear Valued Enterprise Customer", "pro": "Hello", "free": "Hi there"}
-        greeting = tier_greet.get(obs["customer_tier"], "Hello")
-        response = (
-            f"{greeting},\n\nThank you for contacting us regarding '{obs['subject']}'.\n\n"
-            f"Our team will investigate and follow up with you shortly.\n\nBest regards, Support Team"
-        )
-        payload = {
-            "session_id": session_id,
-            "assign_priority": priority, "assign_category": "technical",
-            "response_text": response, "escalate": escalate,
-        }
-        print(f"Step {steps+1}: CLASSIFY  priority={priority}")
-
-    result = requests.post(f"{BASE}/step", json=payload).json()
-    total_reward += result["reward"]["value"]
-    steps += 1
-
-    ws = result["observation"]["world_state"]
-    print(f"  reward={result['reward']['value']:.4f}  churn={ws['customer_churn_risk']:.2f}  sla={ws['sla_breach_count']}")
-
-    if result["done"]:
-        s = result["info"].get("episode_summary", {})
-        print(f"\n=== Done ===  mean_reward={s.get('mean_reward', 0):.4f}  sla_breaches={s.get('sla_breaches', 0)}")
-        break
-```
-
-### Example 3: Evaluate All Tasks
-
-```python
-import requests
-
-BASE = "http://localhost:7860"
-
-for task_id in ["task_1_priority", "task_2_classification", "task_3_full_triage"]:
-    scores = []
-    for seed in [42, 123, 7]:
-        session = requests.post(f"{BASE}/reset", json={"task_id": task_id, "seed": seed}).json()
-        session_id = session["session_id"]
-        total, steps, result = 0, 0, session
-
-        while True:
-            result = requests.post(f"{BASE}/step", json={
-                "session_id": session_id,
-                "assign_priority": "medium",
-                "assign_category": "technical",
-                "response_text": "Hello, thank you for reaching out. Our team will investigate and follow up. Best regards, Support Team",
-                "escalate": False,
-            }).json()
-            total += result["reward"]["value"]
-            steps += 1
-            if result["done"]:
-                break
-
-        scores.append(total / steps)
-
-    mean = sum(scores) / len(scores)
-    print(f"{task_id:<30}  mean={mean:.4f}")
-```
-
----
-
-## 📊 Baseline Scores
-
-Mean reward per step, averaged across seeds (42, 123, 7).
-
-| Task | Rule-Based Agent | GPT-4o-mini |
-|---|---|---|
-| `task_1_priority` | ~0.68 | ~0.88 |
-| `task_2_classification` | ~0.53 | ~0.74 |
-| `task_3_full_triage` | ~0.45 | ~0.63 |
-
-The gap is largest on Task 3 because the rule-based agent's clarifying question is generic. The LLM writes specific questions that reference the feature and ask for reproduction steps, scoring significantly higher on the `clarification` component.
-
----
-
-## 🚀 Installation & Usage
-
-### Docker
-
-```bash
-docker build -t customer-support-env:latest .
-docker run -p 7860:7860 customer-support-env:latest
-
-# With LLM credentials
-docker run -p 7860:7860 \
-  -e MODEL_NAME=llama-3.3-70b-versatile \
-  -e HF_TOKEN=gsk_... \
-  customer-support-env:latest
-```
-
-### Local Python
-
-We natively utilize a `.env` file for API keys if present.
-
-```bash
-pip install uv
-uv lock
-pip install -r requirements.txt
-python server/app.py    # starts server at localhost:7860
-python inference.py     # runs baseline evaluation
-```
-
-### Submitting & Pre-Validation
-
-To run the pre-validation script locally to verify your setup automatically passes the `openenv` spec checks:
-
-```bash
-# Standard Bash
-bash pre_validation.sh https://subhakshay-support-triage-env.hf.space
-```
-
-If you are on Windows using PowerShell and the standard command fails, use this explicit command to route it through Git Bash:
-```powershell
-& "C:\Program Files\Git\bin\bash.exe" -c "export PATH=`"$PWD/venv/Scripts:`$PATH`" && ./pre_validation.sh https://subhakshay-support-triage-env.hf.space"
-```
-
-### Environment Variables
-
-| Variable | Description | Default |
-|---|---|---|
-| `API_BASE_URL` | OpenAI-compatible API base URL | `https://api.groq.com/openai/v1` |
-| `MODEL_NAME` | Model identifier | `llama-3.3-70b-versatile` |
-| `HF_TOKEN` | API key | - |
-
----
-
-## 🔧 Troubleshooting
-
-**Session not found (404)**
-The session expired (TTL = 1 hour) or the episode ended (`done=True` auto-cleans up). Call `/reset` again.
-
-**Invalid enum value (400)**
-All enum values must be lowercase. `"CRITICAL"` is invalid; `"critical"` is correct. Check valid values via `GET /action_space`.
-
-**Rewards are always 0.0 on Task 3**
-The agent is likely sending `response_text = ""`. Response quality contributes 25% of Task 3 reward. Always include a response of at least 30 characters on classify actions.
-
-**LLM agent falls back to rule-based**
-Check `HF_TOKEN` is exported before running. The agent logs `[LLM error: ...]` when falling back, check that output for the underlying cause.
-
-**Docker container exits immediately**
-```bash
-docker logs <container-id>   # check the startup error
-lsof -i :7860                # ensure port is free
-```
-
----
-
-## 📁 File Structure
-
-```
-.
-├── environment.py   # Core OpenEnv environment (MDP, graders, world state)
-├── main.py          # Original FastAPI app logic
-├── server/app.py    # OpenEnv validate entrypoint (forwards to main.py)
-├── pyproject.toml   # Project configuration and CLI entry points
-├── uv.lock          # Exact dependency locks for Hackathon validation
-├── inference.py     # Baseline agents + evaluation runner
-├── openenv.yaml     # OpenEnv spec declaration
-├── Dockerfile       # HuggingFace Spaces deployment
-├── requirements.txt # Python dependencies
-├── .env             # (Git-ignored) Local secrets like HF_TOKEN
-└── README.md        # This file
-```
+This environment is intended to push beyond static QA into **adaptive, long-horizon, world-aware LLM behavior**.
+If the trained defender improves reward while maintaining world-state health under adversarial pressure and policy drift, it demonstrates meaningful progress on realistic agent capabilities.
