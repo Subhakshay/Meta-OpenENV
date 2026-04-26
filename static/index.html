@@ -13,7 +13,7 @@
 
 <!-- ── Navbar ──────────────────────────────────────────────────────────── -->
 <nav class="navbar">
-  <div class="nav-brand">⚡ Meta-OpenENV</div>
+  <div class="nav-brand">⚡</div>
   <ul class="nav-links">
     <li><a href="#architecture">Architecture</a></li>
     <li><a href="#results">Results</a></li>
@@ -75,19 +75,6 @@
   </div>
 </section>
 
-<!-- ── Training — Generate Plots ──────────────────────────────────────── -->
-<section class="section" id="training">
-  <div class="section-header reveal">
-    <div class="section-tag">Training Pipeline</div>
-    <h2 class="section-title">Generate Training Results</h2>
-    <p class="section-subtitle">Run a 50-episode simulation to generate performance comparison graphs</p>
-  </div>
-  <div class="reveal" style="text-align:center;">
-    <button class="demo-btn" id="train-btn" onclick="runTraining()" style="font-size:1rem; padding:0.8rem 2.5rem;">🚀 Generate Training Plots</button>
-    <div id="train-status" style="margin-top:1rem; font-size:0.85rem; color:var(--text-secondary);">Click to run 50-episode simulation and generate all graphs</div>
-  </div>
-</section>
-
 <!-- ── Training Results ───────────────────────────────────────────────── -->
 <section class="section" id="results">
   <div class="section-header reveal">
@@ -131,35 +118,43 @@
     <h2 class="section-title">Base vs Fine-Tuned</h2>
     <p class="section-subtitle">LoRA fine-tuning on just 5 episodes of expert trajectories transforms performance</p>
   </div>
-  <div class="comparison-grid reveal">
-    <div class="card comparison-card">
-      <div class="metric-name">Mean Reward</div>
-      <div class="metric-values"><span class="base">Base: 0.45</span><span class="trained">Trained: 0.85</span></div>
-      <div class="bar-track"><div class="bar-fill base" data-width="45%"></div></div>
-      <div class="bar-track" style="margin-top:4px;"><div class="bar-fill trained" data-width="85%"></div></div>
-      <div class="improvement-badge">↑ +89% improvement</div>
-    </div>
-    <div class="card comparison-card">
-      <div class="metric-name">Attacker Win Rate</div>
-      <div class="metric-values"><span class="base">Base: 65%</span><span class="trained">Trained: 3%</span></div>
-      <div class="bar-track"><div class="bar-fill base" data-width="65%"></div></div>
-      <div class="bar-track" style="margin-top:4px;"><div class="bar-fill trained" data-width="3%"></div></div>
-      <div class="improvement-badge">↓ -95% attacker success</div>
-    </div>
-    <div class="card comparison-card">
-      <div class="metric-name">SLA Breaches (avg)</div>
-      <div class="metric-values"><span class="base">Base: 3.5</span><span class="trained">Trained: 0.5</span></div>
-      <div class="bar-track"><div class="bar-fill base" data-width="70%"></div></div>
-      <div class="bar-track" style="margin-top:4px;"><div class="bar-fill trained" data-width="10%"></div></div>
-      <div class="improvement-badge">↓ -86% SLA violations</div>
-    </div>
-    <div class="card comparison-card">
-      <div class="metric-name">Final Balance</div>
-      <div class="metric-values"><span class="base">Base: $8,200</span><span class="trained">Trained: $9,800</span></div>
-      <div class="bar-track"><div class="bar-fill base" data-width="82%"></div></div>
-      <div class="bar-track" style="margin-top:4px;"><div class="bar-fill trained" data-width="98%"></div></div>
-      <div class="improvement-badge">↑ +$1,600 saved</div>
-    </div>
+  <div class="reveal" style="overflow-x: auto;">
+    <table class="card" style="width: 100%; border-collapse: collapse; text-align: left;">
+      <thead>
+        <tr style="border-bottom: 1px solid var(--glass-border);">
+          <th style="padding: 1rem; color: var(--text-secondary); text-transform: uppercase; font-size: 0.85rem; letter-spacing: 1px;">Metric</th>
+          <th style="padding: 1rem; color: var(--text-secondary); text-transform: uppercase; font-size: 0.85rem; letter-spacing: 1px;">Base Model</th>
+          <th style="padding: 1rem; color: var(--text-secondary); text-transform: uppercase; font-size: 0.85rem; letter-spacing: 1px;">Fine-Tuned (LoRA)</th>
+          <th style="padding: 1rem; color: var(--text-secondary); text-transform: uppercase; font-size: 0.85rem; letter-spacing: 1px;">Improvement</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+          <td style="padding: 1.25rem 1rem; font-weight: 600;">Mean Reward</td>
+          <td style="padding: 1.25rem 1rem; color: var(--text-muted);">0.45</td>
+          <td style="padding: 1.25rem 1rem; color: var(--accent-cyan); font-weight: bold; font-size: 1.1rem;">0.85</td>
+          <td style="padding: 1.25rem 1rem;"><span class="improvement-badge" style="margin:0;">↑ +89%</span></td>
+        </tr>
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+          <td style="padding: 1.25rem 1rem; font-weight: 600;">Attacker Win Rate</td>
+          <td style="padding: 1.25rem 1rem; color: var(--text-muted);">65%</td>
+          <td style="padding: 1.25rem 1rem; color: var(--accent-cyan); font-weight: bold; font-size: 1.1rem;">3%</td>
+          <td style="padding: 1.25rem 1rem;"><span class="improvement-badge" style="margin:0;">↓ -95%</span></td>
+        </tr>
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+          <td style="padding: 1.25rem 1rem; font-weight: 600;">SLA Breaches (avg)</td>
+          <td style="padding: 1.25rem 1rem; color: var(--text-muted);">3.5</td>
+          <td style="padding: 1.25rem 1rem; color: var(--accent-cyan); font-weight: bold; font-size: 1.1rem;">0.5</td>
+          <td style="padding: 1.25rem 1rem;"><span class="improvement-badge" style="margin:0;">↓ -86%</span></td>
+        </tr>
+        <tr>
+          <td style="padding: 1.25rem 1rem; font-weight: 600;">Final Balance</td>
+          <td style="padding: 1.25rem 1rem; color: var(--text-muted);">$8,200</td>
+          <td style="padding: 1.25rem 1rem; color: var(--accent-cyan); font-weight: bold; font-size: 1.1rem;">$9,800</td>
+          <td style="padding: 1.25rem 1rem;"><span class="improvement-badge" style="margin:0;">↑ +$1,600</span></td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 </section>
 
@@ -219,43 +214,6 @@
     </div>
   </div>
 
-  <!-- Full Episode Demo -->
-  <div style="margin-top:1.5rem;" class="reveal">
-    <div class="card" style="padding:1.5rem;">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1rem;">
-        <div style="font-weight:600; font-size:0.95rem;">🎮 Full Episode Runner — 12 Steps with Adversarial Attacker</div>
-        <button class="demo-btn" id="full-demo-btn" onclick="runFullDemo()" style="margin:0;">▶ Run Full 12-Step Episode</button>
-      </div>
-      <div class="demo-output" id="full-demo-output" style="max-height:400px; font-family:'JetBrains Mono',monospace; font-size:0.75rem;">Click "Run Full 12-Step Episode" to watch a defender agent process 12 adversarial tickets in real-time with live scoring</div>
-    </div>
-  </div>
-</section>
-
-<!-- ── Live Metrics ───────────────────────────────────────────────────── -->
-<section class="section" id="metrics">
-  <div class="section-header reveal">
-    <div class="section-tag">Database Metrics</div>
-    <h2 class="section-title">Live Performance Data</h2>
-    <p class="section-subtitle">Real-time metrics pulled from gauntlet.db</p>
-  </div>
-  <div id="live-metrics-grid" style="display:grid; grid-template-columns:repeat(4,1fr); gap:1rem;" class="reveal">
-    <div class="card" style="text-align:center; padding:1.5rem;">
-      <div style="font-size:0.75rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:1px;">Total Episodes</div>
-      <div id="metric-episodes" style="font-size:2rem; font-weight:800; background:var(--gradient-hero); -webkit-background-clip:text; -webkit-text-fill-color:transparent; margin:0.5rem 0;">—</div>
-    </div>
-    <div class="card" style="text-align:center; padding:1.5rem;">
-      <div style="font-size:0.75rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:1px;">Avg Reward</div>
-      <div id="metric-reward" style="font-size:2rem; font-weight:800; color:var(--accent-cyan); margin:0.5rem 0;">—</div>
-    </div>
-    <div class="card" style="text-align:center; padding:1.5rem;">
-      <div style="font-size:0.75rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:1px;">Avg Balance</div>
-      <div id="metric-balance" style="font-size:2rem; font-weight:800; color:var(--accent-blue); margin:0.5rem 0;">—</div>
-    </div>
-    <div class="card" style="text-align:center; padding:1.5rem;">
-      <div style="font-size:0.75rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:1px;">Attacker Win Rate</div>
-      <div id="metric-awr" style="font-size:2rem; font-weight:800; color:var(--accent-red); margin:0.5rem 0;">—</div>
-    </div>
-  </div>
 </section>
 
 <!-- ── Tech Stack ─────────────────────────────────────────────────────── -->
@@ -287,27 +245,6 @@
 <div class="modal-overlay" id="graph-modal"><img id="modal-img" src="" alt="Full-size graph"></div>
 
 <script src="/static/script.js"></script>
-<script>
-// Fetch live metrics on load
-(async function loadMetrics() {
-  try {
-    const res = await fetch('/api/metrics');
-    const data = await res.json();
-    if (data.has_data) {
-      document.getElementById('metric-episodes').textContent = data.total_episodes;
-      document.getElementById('metric-reward').textContent = data.avg_reward.toFixed(3);
-      document.getElementById('metric-balance').textContent = '$' + data.avg_balance.toLocaleString();
-      document.getElementById('metric-awr').textContent = (data.avg_attacker_win_rate * 100).toFixed(1) + '%';
-    } else {
-      document.getElementById('metric-episodes').textContent = '0';
-      document.getElementById('metric-reward').textContent = 'No data';
-      document.getElementById('metric-balance').textContent = '—';
-      document.getElementById('metric-awr').textContent = '—';
-    }
-  } catch (e) {
-    console.error('Failed to load metrics:', e);
-  }
-})();
 </script>
 </body>
 </html>
