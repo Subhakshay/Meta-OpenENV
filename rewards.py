@@ -367,12 +367,6 @@ def calculate_defender_reward(
             correct=(priority_correct and category_correct)
         )
 
-    # Record attacker result: attacker wins if defender got negative reward
-    world_state.record_attacker_result(attacker_won=(total < 0))
-
-    # Run curriculum adjustment
-    world_state.run_curriculum_step()
-
     breakdown["total"] = round(total, 4)
     return round(total, 4), breakdown
 

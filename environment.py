@@ -67,8 +67,15 @@ _REPLY_VARS = {
     "plan": ["Pro", "Enterprise", "Business", "Starter", "Growth"],
     "charge_amount": ["49.99", "99.00", "299.00", "19.99", "149.50", "599.00"],
     "incident_id": [f"{n:06d}" for n in range(100001, 100021)],
-    "product": ["API Gateway", "Dashboard", "Analytics Suite", "Payment Module",
-                "Auth Service", "Webhook Relay", "Storage Bucket"],
+    "product": [
+        "API Gateway",
+        "Dashboard",
+        "Analytics Suite",
+        "Payment Module",
+        "Auth Service",
+        "Webhook Relay",
+        "Storage Bucket",
+    ],
     "order_id": [f"ORD-{n}" for n in range(10001, 10021)],
     "tracking_status": ["In Transit", "Out for Delivery", "Delayed", "Pending"],
 }
@@ -76,10 +83,12 @@ _REPLY_VARS = {
 
 def _fill_reply(template: str, rng: random.Random) -> str:
     """Fill {placeholder} variables in clarification replies."""
+
     def replacer(m):
         key = m.group(1)
         pool = _REPLY_VARS.get(key, [f"[{key}]"])
         return rng.choice(pool)
+
     return re.sub(r"\{(\w+)\}", replacer, template)
 
 
@@ -98,6 +107,7 @@ def simulate_customer_reply(
 # CustomerSupportEnv
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class CustomerSupportEnv:
     """
     Core environment implementing Gym-style reset/step API.
@@ -112,7 +122,9 @@ class CustomerSupportEnv:
 
     def __init__(self) -> None:
         self.policy_registry = PolicyRegistry()
-        self.drift_scheduler = DriftScheduler(episode_length=self.EPISODE_LENGTH, registry=self.policy_registry)
+        self.drift_scheduler = DriftScheduler(
+            episode_length=self.EPISODE_LENGTH, registry=self.policy_registry
+        )
         self.world_state = WorldState()
         self._rng = random.Random(42)
         self._engine = GenerationEngine(seed=42)
@@ -178,7 +190,7 @@ class CustomerSupportEnv:
 
         # Task 1: cap difficulty at 0.2
         if task_id == 1:
-            self.world_state.difficulty_level = min(0.2, difficulty_init)
+            self.world_state.difficulty_level = min(0.2, difficulty_init or 0.2)
             self._drift_enabled = False  # Drift disabled for task 1
 
         # Schedule drifts AFTER difficulty is set
@@ -195,6 +207,9 @@ class CustomerSupportEnv:
 
         # Generate ticket queue
         self._ticket_queue = self._generate_ticket_batch(n=self.EPISODE_LENGTH)
+        print(
+            f"[RESET] difficulty after reset: {self.world_state.difficulty_level}, deque_len: {len(self.world_state._recent_attacker_results)}"
+        )
 
         # Build first observation
         return self._build_observation(
@@ -202,7 +217,9 @@ class CustomerSupportEnv:
             drift_notice=None,
         )
 
-    def _reconcile_queue(self, new_policy: PolicyVersion, old_policy: PolicyVersion, step: int) -> int:
+    def _reconcile_queue(
+        self, new_policy: PolicyVersion, old_policy: PolicyVersion, step: int
+    ) -> int:
         """
         Silent Replacement method: check all unshown tickets against the new
         policy.  Replace incompatible tickets by re-rendering via the engine.
@@ -224,14 +241,22 @@ class CustomerSupportEnv:
                 compatible = False
 
             # 2. Boundary exploit window check
-            if compatible and ticket.get("deception_strategy") == "boundary_exploitation":
-                stored_days = ticket.get("boundary_exploit_day_count") or ticket.get("days_since_purchase")
+            if (
+                compatible
+                and ticket.get("deception_strategy") == "boundary_exploitation"
+            ):
+                stored_days = ticket.get("boundary_exploit_day_count") or ticket.get(
+                    "days_since_purchase"
+                )
                 if stored_days is not None:
                     if abs(stored_days - new_policy.refund_window_days) > 2:
                         compatible = False
 
             # 3. Empathy trigger check
-            if compatible and ticket.get("deception_strategy") == "emotional_manipulation":
+            if (
+                compatible
+                and ticket.get("deception_strategy") == "emotional_manipulation"
+            ):
                 if new_policy.empathy_required_below_sentiment is None:
                     compatible = False
 
@@ -240,7 +265,11 @@ class CustomerSupportEnv:
                 category = ticket.get("true_category", "Technical")
                 strategy = ticket.get("deception_strategy", "clean")
                 priority = ticket.get("true_priority", "Medium")
-                tone = ticket.get("ground_truth", {}).get("tone", "neutral") if isinstance(ticket.get("ground_truth"), dict) else "neutral"
+                tone = (
+                    ticket.get("ground_truth", {}).get("tone", "neutral")
+                    if isinstance(ticket.get("ground_truth"), dict)
+                    else "neutral"
+                )
 
                 # If category is now invalid, swap to a valid one
                 if category not in new_policy.valid_categories:
@@ -265,7 +294,8 @@ class CustomerSupportEnv:
                         "tier": self._rng.choice(MISC_VARS["tier"]),
                         "true_priority": gt["priority"],
                         "true_category": gt["category"],
-                        "base_requires_escalation": gt["priority"] == "High" and strategy in ("fake_urgency", "boundary_exploitation"),
+                        "base_requires_escalation": gt["priority"] == "High"
+                        and strategy in ("fake_urgency", "boundary_exploitation"),
                         "deception_strategy": gt["strategy"],
                         "schema_violation": gt["strategy"] == "schema_exploitation",
                         "is_ambiguous": gt["strategy"] == "category_confusion",
@@ -276,7 +306,9 @@ class CustomerSupportEnv:
                     }
 
                     if "boundary_exploit_day_count" in result:
-                        new_ticket["boundary_exploit_day_count"] = result["boundary_exploit_day_count"]
+                        new_ticket["boundary_exploit_day_count"] = result[
+                            "boundary_exploit_day_count"
+                        ]
 
                     self._ticket_queue[i] = new_ticket
 
@@ -336,14 +368,23 @@ class CustomerSupportEnv:
         # ── Check for drift ──────────────────────────────────────────────
         drift_notice = None
         if self._drift_enabled:
-            event = next((e for e in self._drift_events if e.fires_at_step == self._current_step), None)
+            event = next(
+                (
+                    e
+                    for e in self._drift_events
+                    if e.fires_at_step == self._current_step
+                ),
+                None,
+            )
             if event:
                 old_policy = self.policy_registry.get_active()
                 self.policy_registry._history.append(event.new_policy)
                 self.world_state.record_drift_event(event.new_policy.version_id)
                 self._was_post_drift = True
 
-                drift_notice = build_drift_notice(old_policy, event.new_policy, self._current_step)
+                drift_notice = build_drift_notice(
+                    old_policy, event.new_policy, self._current_step
+                )
                 self._pending_drift_notice = drift_notice
 
                 # Reconcile the queue
@@ -353,15 +394,19 @@ class CustomerSupportEnv:
         ticket = self._ticket_queue[self.world_state.tickets_processed]
 
         # ── Handle multi-turn ASK (Task 3) ───────────────────────────────
-        if (self._task_id == 3
-                and action.get("ask_clarification", False)
-                and not self.world_state.multi_turn_active):
+        if (
+            self._task_id == 3
+            and action.get("ask_clarification", False)
+            and not self.world_state.multi_turn_active
+        ):
             self.world_state.multi_turn_active = True
             reply = simulate_customer_reply(ticket, self._rng)
-            self._conversation_history.append({
-                "agent": action.get("clarification_text", "Could you clarify?"),
-                "customer": reply,
-            })
+            self._conversation_history.append(
+                {
+                    "agent": action.get("clarification_text", "Could you clarify?"),
+                    "customer": reply,
+                }
+            )
 
             # Clarification quality scoring
             clarif_reward = 0.0
@@ -370,7 +415,9 @@ class CustomerSupportEnv:
                 q_text = action.get("clarification_text", "")
                 if q_text and "?" in q_text:
                     # Check if references ticket content
-                    subject_kws = set(re.split(r'\W+', ticket.get("subject", "").lower()))
+                    subject_kws = set(
+                        re.split(r"\W+", ticket.get("subject", "").lower())
+                    )
                     if any(kw in q_text.lower() for kw in subject_kws if len(kw) > 3):
                         clarif_reward += 0.5
             else:
@@ -387,7 +434,9 @@ class CustomerSupportEnv:
 
         # ── Calculate rewards ────────────────────────────────────────────
         active_policy = self.policy_registry.get_active()
-        previous_policy = self.policy_registry.get_previous() if self._was_post_drift else None
+        previous_policy = (
+            self.policy_registry.get_previous() if self._was_post_drift else None
+        )
 
         defender_reward, breakdown = calculate_defender_reward(
             action=action,
@@ -406,6 +455,17 @@ class CustomerSupportEnv:
 
         self._defender_rewards.append(defender_reward)
         self._attacker_rewards.append(attacker_reward)
+
+        # Attacker wins if Defender scored below the median expected reward
+        # for a correct classification on a straightforward ticket (~3.5)
+        # CALIBRATION: Only win on genuine catastrophic mistakes (wrong priority/escalation)
+        attacker_won = defender_reward < 0.5
+
+        # 2. Record to populate the deque
+        self.world_state.record_attacker_result(attacker_won)
+
+        # 3. Run curriculum adjustment
+        self.world_state.run_curriculum_step()
 
         # ── Advance state ────────────────────────────────────────────────
         self.world_state.tickets_processed += 1
@@ -466,10 +526,10 @@ class CustomerSupportEnv:
 
         # Conditionally expose sentiment/account age
         if active_policy.empathy_required_below_sentiment is not None:
-             if "sentiment_score" in ticket:
-                 obs["sentiment_score"] = ticket["sentiment_score"]
-             if "account_age_days" in ticket:
-                 obs["account_age_days"] = ticket["account_age_days"]
+            if "sentiment_score" in ticket:
+                obs["sentiment_score"] = ticket["sentiment_score"]
+            if "account_age_days" in ticket:
+                obs["account_age_days"] = ticket["account_age_days"]
 
         # System notice (only if drift just fired)
         if drift_notice:
@@ -522,7 +582,9 @@ class CustomerSupportEnv:
 
         return tickets
 
-    def set_attacker_tickets(self, tickets: List[Dict[str, Any]], attacker_agent: Any = None) -> None:
+    def set_attacker_tickets(
+        self, tickets: List[Dict[str, Any]], attacker_agent: Any = None
+    ) -> None:
         """Replace the ticket queue with attacker-generated tickets."""
         self._ticket_queue = tickets
         self._attacker_tickets = tickets

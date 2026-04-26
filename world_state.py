@@ -29,14 +29,14 @@ class WorldState:
 
     # ── Public fields (exported via to_export_dict) ──────────────────────────
     company_balance: float = 10_000.0
-    churn_risk: float = 0.0                    # clamp 0.0–1.0
+    churn_risk: float = 0.0  # clamp 0.0–1.0
     escalation_queue_size: int = 0
     sla_breaches: int = 0
     drift_events_fired: int = 0
     agent_drift_accuracy: float = 0.0
     stale_decisions_made: int = 0
     hallucinations_caught: int = 0
-    attacker_win_rate_50: float = 0.5          # rolling window, cross-episode
+    attacker_win_rate_50: float = 0.5  # rolling window, cross-episode
     difficulty_level: float = 0.3
     tickets_processed: int = 0
     multi_turn_active: bool = False
@@ -101,8 +101,8 @@ class WorldState:
         """
         self._recent_attacker_results.append(1 if attacker_won else 0)
         if len(self._recent_attacker_results) > 0:
-            self.attacker_win_rate_50 = (
-                sum(self._recent_attacker_results) / len(self._recent_attacker_results)
+            self.attacker_win_rate_50 = sum(self._recent_attacker_results) / len(
+                self._recent_attacker_results
             )
 
     # ── Curriculum controller ────────────────────────────────────────────────
@@ -112,22 +112,25 @@ class WorldState:
         Called after every step. Adjusts difficulty_level based on attacker_win_rate_50.
         Only activates after the deque has >= 10 entries (cold start protection).
         """
+        print(
+            f"[CURRICULUM] deque_len={len(self._recent_attacker_results)}, rate={self.attacker_win_rate_50:.3f}, difficulty={self.difficulty_level:.3f}"
+        )
         if len(self._recent_attacker_results) < 10:
             return
 
         rate = self.attacker_win_rate_50
-        if rate > 0.75:
-            # Attacker dominating → make it easier for defender
-            self.difficulty_level = max(0.0, self.difficulty_level - 0.10)
-        elif 0.60 <= rate <= 0.75:
-            # Balanced-ish → hold steady
+        if rate > 0.50:
+            # Attacker winning more than half → ease off
+            self.difficulty_level = max(0.0, self.difficulty_level - 0.05)
+        elif 0.30 <= rate <= 0.50:
+            # Roughly balanced → hold steady
             pass
-        elif 0.40 <= rate < 0.60:
-            # Defender doing well → increase difficulty slightly
-            self.difficulty_level = min(1.0, self.difficulty_level + 0.05)
-        else:  # < 0.40
-            # Defender dominating → ramp up difficulty
-            self.difficulty_level = min(1.0, self.difficulty_level + 0.15)
+        elif 0.15 <= rate < 0.30:
+            # Defender doing well → nudge difficulty up
+            self.difficulty_level = min(1.0, self.difficulty_level + 0.02)
+        else:  # < 0.15
+            # Defender dominating (rule-based agent usually sits here) → increase difficulty
+            self.difficulty_level = min(1.0, self.difficulty_level + 0.04)
 
     # ── Export ────────────────────────────────────────────────────────────────
 
@@ -136,18 +139,18 @@ class WorldState:
         Return all public fields as a dict (exclude _ prefixed fields).
         Used for API responses and DB snapshots.
         """
-        return {
-            k: v
-            for k, v in self.__dict__.items()
-            if not k.startswith("_")
-        }
+        return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
 
     def reset_episode(self, preserve_attacker_deque: bool = True) -> None:
         """
         Reset episode-level state. Optionally preserve attacker deque
         across episodes for curriculum continuity.
         """
-        saved_deque = self._recent_attacker_results if preserve_attacker_deque else deque(maxlen=50)
+        saved_deque = (
+            self._recent_attacker_results
+            if preserve_attacker_deque
+            else deque(maxlen=50)
+        )
         saved_win_rate = self.attacker_win_rate_50 if preserve_attacker_deque else 0.5
         saved_difficulty = self.difficulty_level if preserve_attacker_deque else 0.3
 

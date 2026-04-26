@@ -18,29 +18,105 @@ from typing import Any, Dict, List
 # ─── Rule-based agent (self-contained, no LLM needed) ────────────────────────
 
 _PRIORITY_SIGNALS = {
-    "Critical": ["production down", "completely down", "system down", "data loss",
-                 "outage", "emergency", "critical", "urgent:", "all users locked",
-                 "unauthorized access", "api keys leaked", "security breach"],
-    "High": ["cannot log in", "can't log in", "charged twice", "duplicate charge",
-             "hasn't arrived", "wrong item", "locked out", "suspicious login",
-             "bypass vulnerability", "not received", "unauthorized"],
-    "Medium": ["sometimes", "occasionally", "slow", "seems off", "not sure",
-               "acting weird", "permission errors", "sessions I don't recognize",
-               "intermittent"],
-    "Low": ["question about", "interested in", "feedback", "how do i", "how to",
-            "quick question", "no rush", "annual billing discount"],
+    "Critical": [
+        "production down",
+        "completely down",
+        "system down",
+        "data loss",
+        "outage",
+        "emergency",
+        "critical",
+        "urgent:",
+        "all users locked",
+        "unauthorized access",
+        "api keys leaked",
+        "security breach",
+    ],
+    "High": [
+        "cannot log in",
+        "can't log in",
+        "charged twice",
+        "duplicate charge",
+        "hasn't arrived",
+        "wrong item",
+        "locked out",
+        "suspicious login",
+        "bypass vulnerability",
+        "not received",
+        "unauthorized",
+    ],
+    "Medium": [
+        "sometimes",
+        "occasionally",
+        "slow",
+        "seems off",
+        "not sure",
+        "acting weird",
+        "permission errors",
+        "sessions I don't recognize",
+        "intermittent",
+    ],
+    "Low": [
+        "question about",
+        "interested in",
+        "feedback",
+        "how do i",
+        "how to",
+        "quick question",
+        "no rush",
+        "annual billing discount",
+    ],
 }
 
 _CATEGORY_SIGNALS = {
-    "Billing": ["billing", "charge", "payment", "invoice", "plan", "refund",
-                "subscription", "pricing", "discount", "money"],
-    "Technical": ["api", "error", "production", "down", "bug", "dashboard", "webhook",
-                  "integration", "sync", "500", "timeout", "crash", "server"],
-    "Shipping": ["order", "arrived", "delivery", "ship", "tracking", "package",
-                 "dispatch", "received"],
-    "Security": ["unauthorized", "access control", "data breach", "suspicious",
-                 "api keys", "leaked", "vulnerability", "authentication bypass",
-                 "security"],
+    "Billing": [
+        "billing",
+        "charge",
+        "payment",
+        "invoice",
+        "plan",
+        "refund",
+        "subscription",
+        "pricing",
+        "discount",
+        "money",
+    ],
+    "Technical": [
+        "api",
+        "error",
+        "production",
+        "down",
+        "bug",
+        "dashboard",
+        "webhook",
+        "integration",
+        "sync",
+        "500",
+        "timeout",
+        "crash",
+        "server",
+    ],
+    "Shipping": [
+        "order",
+        "arrived",
+        "delivery",
+        "ship",
+        "tracking",
+        "package",
+        "dispatch",
+        "received",
+    ],
+    "Security": [
+        "unauthorized",
+        "access control",
+        "data breach",
+        "suspicious",
+        "api keys",
+        "leaked",
+        "vulnerability",
+        "authentication bypass",
+        "security",
+    ],
     "Fraud": ["fraud", "fraudulent", "scam"],
     "Compliance": ["compliance", "regulation", "audit"],
 }
@@ -57,7 +133,9 @@ def _classify_priority(text: str) -> str:
 def _classify_category(text: str, valid_categories) -> str:
     t = text.lower()
     for c in ["Security", "Fraud", "Compliance", "Billing", "Technical", "Shipping"]:
-        if c in valid_categories and any(kw in t for kw in _CATEGORY_SIGNALS.get(c, [])):
+        if c in valid_categories and any(
+            kw in t for kw in _CATEGORY_SIGNALS.get(c, [])
+        ):
             return c
     # Fallback to a valid category
     return valid_categories[0] if valid_categories else "Technical"
@@ -112,8 +190,9 @@ def rule_based_agent(observation: Dict[str, Any]) -> Dict[str, Any]:
 
 # ─── Training loop ────────────────────────────────────────────────────────────
 
+
 def run_baseline(
-    num_episodes: int = 50,
+    num_episodes: int = 3,
     task_id: int = 2,
     drift_enabled: bool = True,
     attacker_enabled: bool = False,
@@ -122,9 +201,9 @@ def run_baseline(
     from environment import CustomerSupportEnv
 
     env = CustomerSupportEnv()
-    episode_rewards = []       # mean reward per episode
+    episode_rewards = []  # mean reward per episode
     episode_step_rewards = []  # all step rewards across all episodes
-    difficulty_trace = []      # difficulty after each episode
+    difficulty_trace = []  # difficulty after each episode
 
     for ep in range(num_episodes):
         obs = env.reset(
@@ -152,7 +231,7 @@ def run_baseline(
         episode_step_rewards.extend(step_rewards)
         difficulty_trace.append(env.world_state.difficulty_level)
 
-        status = f"Episode {ep+1:3d}/{num_episodes} | Mean Reward: {mean_r:+.3f} | Difficulty: {env.world_state.difficulty_level:.3f}"
+        status = f"Episode {ep + 1:3d}/{num_episodes} | Mean Reward: {mean_r:+.3f} | Difficulty: {env.world_state.difficulty_level:.3f}"
         print(status, flush=True)
 
     return episode_rewards, episode_step_rewards, difficulty_trace
@@ -162,6 +241,7 @@ def plot_results(episode_rewards, step_rewards, difficulty_trace, title_suffix="
     """Generate and save reward curve plots."""
     try:
         import matplotlib
+
         matplotlib.use("Agg")  # non-interactive backend
         import matplotlib.pyplot as plt
     except ImportError:
@@ -169,7 +249,12 @@ def plot_results(episode_rewards, step_rewards, difficulty_trace, title_suffix="
         return
 
     fig, axes = plt.subplots(3, 1, figsize=(12, 14), facecolor="#1a1a2e")
-    fig.suptitle(f"Rule-Based Agent Baseline{title_suffix}", fontsize=16, color="white", fontweight="bold")
+    fig.suptitle(
+        f"Rule-Based Agent Baseline{title_suffix}",
+        fontsize=16,
+        color="white",
+        fontweight="bold",
+    )
 
     for ax in axes:
         ax.set_facecolor("#16213e")
@@ -182,12 +267,29 @@ def plot_results(episode_rewards, step_rewards, difficulty_trace, title_suffix="
 
     # 1. Episode mean reward
     ax1 = axes[0]
-    ax1.plot(range(1, len(episode_rewards)+1), episode_rewards, color="#e94560", linewidth=1.5, alpha=0.7, label="Episode Reward")
+    ax1.plot(
+        range(1, len(episode_rewards) + 1),
+        episode_rewards,
+        color="#e94560",
+        linewidth=1.5,
+        alpha=0.7,
+        label="Episode Reward",
+    )
     # Rolling average
     window = min(10, len(episode_rewards))
     if window > 1:
-        rolling = [sum(episode_rewards[max(0,i-window):i+1]) / len(episode_rewards[max(0,i-window):i+1]) for i in range(len(episode_rewards))]
-        ax1.plot(range(1, len(rolling)+1), rolling, color="#0f3460", linewidth=2.5, label=f"{window}-Episode Rolling Avg")
+        rolling = [
+            sum(episode_rewards[max(0, i - window) : i + 1])
+            / len(episode_rewards[max(0, i - window) : i + 1])
+            for i in range(len(episode_rewards))
+        ]
+        ax1.plot(
+            range(1, len(rolling) + 1),
+            rolling,
+            color="#0f3460",
+            linewidth=2.5,
+            label=f"{window}-Episode Rolling Avg",
+        )
     ax1.axhline(y=0, color="#444", linestyle="--", linewidth=0.8)
     ax1.set_xlabel("Episode")
     ax1.set_ylabel("Mean Reward")
@@ -200,8 +302,18 @@ def plot_results(episode_rewards, step_rewards, difficulty_trace, title_suffix="
     # Rolling step average
     step_window = min(50, len(step_rewards))
     if step_window > 1:
-        step_rolling = [sum(step_rewards[max(0,i-step_window):i+1]) / len(step_rewards[max(0,i-step_window):i+1]) for i in range(len(step_rewards))]
-        ax2.plot(range(len(step_rolling)), step_rolling, color="#0f3460", linewidth=1.5, label=f"{step_window}-Step Rolling Avg")
+        step_rolling = [
+            sum(step_rewards[max(0, i - step_window) : i + 1])
+            / len(step_rewards[max(0, i - step_window) : i + 1])
+            for i in range(len(step_rewards))
+        ]
+        ax2.plot(
+            range(len(step_rolling)),
+            step_rolling,
+            color="#0f3460",
+            linewidth=1.5,
+            label=f"{step_window}-Step Rolling Avg",
+        )
     ax2.axhline(y=0, color="#444", linestyle="--", linewidth=0.8)
     ax2.set_xlabel("Step (global)")
     ax2.set_ylabel("Reward")
@@ -210,7 +322,12 @@ def plot_results(episode_rewards, step_rewards, difficulty_trace, title_suffix="
 
     # 3. Difficulty trace
     ax3 = axes[2]
-    ax3.plot(range(1, len(difficulty_trace)+1), difficulty_trace, color="#533483", linewidth=2)
+    ax3.plot(
+        range(1, len(difficulty_trace) + 1),
+        difficulty_trace,
+        color="#533483",
+        linewidth=2,
+    )
     ax3.set_xlabel("Episode")
     ax3.set_ylabel("Difficulty Level")
     ax3.set_title("Curriculum Difficulty Over Time")
@@ -226,7 +343,7 @@ def plot_results(episode_rewards, step_rewards, difficulty_trace, title_suffix="
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    NUM_EPISODES = 50
+    NUM_EPISODES = 3
 
     print("=" * 60)
     print("Baseline Training — Rule-Based Agent")
@@ -235,16 +352,18 @@ if __name__ == "__main__":
     # Run 1: Task 2, drift enabled, no attacker
     print("\n--- Run 1: Task 2 + Drift (no attacker) ---")
     ep_r, step_r, diff_t = run_baseline(
-        num_episodes=NUM_EPISODES, task_id=2,
-        drift_enabled=True, attacker_enabled=False,
+        num_episodes=NUM_EPISODES,
+        task_id=2,
+        drift_enabled=True,
+        attacker_enabled=False,
     )
     plot_results(ep_r, step_r, diff_t, " — Task 2 + Drift")
 
     # Print summary stats
-    print(f"\n{'='*40}")
+    print(f"\n{'=' * 40}")
     print(f"  Episodes:         {NUM_EPISODES}")
-    print(f"  Mean Reward:      {sum(ep_r)/len(ep_r):+.4f}")
+    print(f"  Mean Reward:      {sum(ep_r) / len(ep_r):+.4f}")
     print(f"  Best Episode:     {max(ep_r):+.4f}")
     print(f"  Worst Episode:    {min(ep_r):+.4f}")
     print(f"  Final Difficulty: {diff_t[-1]:.4f}")
-    print(f"{'='*40}")
+    print(f"{'=' * 40}")
